@@ -36,6 +36,9 @@ import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
 import { Review, FeedbackType } from '../types.js';
 import { useAuth } from '../context/AuthContext.js';
 
+// Production Cloudinary HTTPS video source for Vercel deployment
+const CLOUDINARY_HERO_VIDEO_URL = 'https://res.cloudinary.com/grmovdbb/video/upload/v1787130985/1000240377.mp4';
+
 interface HomePageProps {
   onNavigate: (page: string) => void;
 }
@@ -102,8 +105,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     const video = heroVideoRef.current;
     if (!video) return;
 
-    const videoUrl = '/assets/1000240377.mp4';
-    console.log('[Hero Video] Target video URL:', videoUrl);
+    console.log('[Hero Video] Production Cloudinary URL:', CLOUDINARY_HERO_VIDEO_URL);
 
     // Ensure audio tracks are strictly disabled so autoplay policy is satisfied on mobile iOS & Android
     video.muted = true;
@@ -478,7 +480,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         {/* Background Video: Layer 0 */}
         <video
           ref={heroVideoRef}
-          src="/assets/1000240377.mp4"
+          src={CLOUDINARY_HERO_VIDEO_URL}
           autoPlay
           muted
           loop
@@ -488,8 +490,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none"
           style={{ objectFit: 'cover', width: '100%', height: '100%' }}
         >
-          <source src="/assets/1000240377.mp4" type="video/mp4" />
-          <source src="/1000240377.mp4" type="video/mp4" />
+          <source src={CLOUDINARY_HERO_VIDEO_URL} type="video/mp4" />
         </video>
 
         {/* Subtle transparent overlay: Layer 1 (allowing video frames to be vividly visible while keeping text legible) */}
@@ -1303,6 +1304,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         {/* Background Video */}
         <video
           ref={ctaVideoRef}
+          src={CLOUDINARY_HERO_VIDEO_URL}
           autoPlay
           muted
           loop
@@ -1312,7 +1314,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none opacity-40"
           style={{ objectFit: 'cover' }}
         >
-          <source src="/assets/1000240377.mp4" type="video/mp4" />
+          <source src={CLOUDINARY_HERO_VIDEO_URL} type="video/mp4" />
         </video>
 
         {/* Lightweight Animated Healthcare Graphics / Network Background */}
