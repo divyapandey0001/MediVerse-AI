@@ -1,4 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
+import path from 'path';
 import dotenv from 'dotenv';
 import { db } from './db.js';
 import {
@@ -31,6 +32,26 @@ export function createApp() {
   // Allow up to 50MB for PDF and high-res image report uploads
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+  // Serve static assets directory with full HTTP 206 Range support for video streaming
+  const publicAssetsPath = path.join(process.cwd(), 'public', 'assets');
+  const distAssetsPath = path.join(process.cwd(), 'dist', 'assets');
+  app.use('/assets', express.static(publicAssetsPath, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.mp4')) {
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Accept-Ranges', 'bytes');
+      }
+    }
+  }));
+  app.use('/assets', express.static(distAssetsPath, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.mp4')) {
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Accept-Ranges', 'bytes');
+      }
+    }
+  }));
 
   // Helper auth middleware
   function authenticateUser(req: Request): User | null {
