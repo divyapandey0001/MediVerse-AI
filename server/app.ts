@@ -50,14 +50,6 @@ export function createApp() {
     return user ? user.id : null;
   }
 
-  // Normalize URL path so both with and without /api prefix work seamlessly
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    if (!req.url.startsWith('/api') && !req.url.startsWith('/assets') && !req.url.startsWith('/vite') && !req.url.startsWith('/@')) {
-      req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
-    }
-    next();
-  });
-
   // --- Health & Diagnostic Routes ---
   const handleHealth = (req: Request, res: Response) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -72,8 +64,6 @@ export function createApp() {
 
   app.get('/api/health', handleHealth);
   app.get('/health', handleHealth);
-  app.get('/api', handleHealth);
-  app.get('/api/', handleHealth);
 
   // 1. Authentication Endpoints
   app.post('/api/auth/signup', (req: Request, res: Response) => {

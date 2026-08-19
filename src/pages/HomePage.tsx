@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   FileText,
   Stethoscope,
@@ -92,8 +92,28 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     }
   };
 
+  // Video refs to guarantee autoplay even in restrictive browser environments
+  const heroVideoRef = useRef<HTMLVideoElement | null>(null);
+  const ctaVideoRef = useRef<HTMLVideoElement | null>(null);
+
   useEffect(() => {
     fetchReviews();
+
+    // Ensure hero and CTA videos start playing
+    const initVideo = (video: HTMLVideoElement | null) => {
+      if (!video) return;
+      video.defaultMuted = true;
+      video.muted = true;
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {
+          // Handled silently if autoplay policy requires user interaction
+        });
+      }
+    };
+
+    initVideo(heroVideoRef.current);
+    initVideo(ctaVideoRef.current);
   }, []);
 
   // Handle real review submission
@@ -347,10 +367,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       <DisclaimerBanner compact />
 
       {/* 2. HOMEPAGE HERO WITH BACKGROUND VIDEO */}
-      <section className="relative overflow-hidden bg-[#07132c] text-white py-20 sm:py-28 min-h-[560px] sm:min-h-[620px] flex items-center justify-center">
+      <section className="relative overflow-hidden bg-slate-950 text-white py-20 sm:py-28 min-h-[560px] sm:min-h-[620px] flex items-center justify-center">
         
-        {/* Background Video (Autoplay, Loop, Muted, PlaysInline, Object-Fit Cover) */}
+        {/* Background Video: Layer 0 */}
         <video
+          ref={heroVideoRef}
           autoPlay
           muted
           loop
@@ -358,18 +379,15 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           preload="auto"
           aria-hidden="true"
           className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none"
-          style={{ objectFit: 'cover' }}
+          style={{ objectFit: 'cover', width: '100%', height: '100%' }}
         >
           <source src="/assets/1000240377.mp4" type="video/mp4" />
         </video>
 
-        {/* Semi-transparent dark blue overlay */}
-        <div className="absolute inset-0 z-10 bg-gradient-to-b from-[#07132c]/75 via-[#0a1e45]/60 to-[#07132c]/85 pointer-events-none" />
+        {/* Semi-transparent dark blue overlay: Layer 1 (allowing video to be clearly visible) */}
+        <div className="absolute inset-0 z-10 bg-gradient-to-b from-[#07132c]/40 via-[#07132c]/25 to-[#07132c]/50 pointer-events-none" />
 
-        {/* Subtle Ambient Medical Glow Highlights */}
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-blue-500/15 rounded-full blur-3xl pointer-events-none z-10" />
-
-        {/* Hero Content (Above Video and Overlay) */}
+        {/* Hero Content: Layer 2 */}
         <div className="relative z-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <div className="max-w-3xl mx-auto space-y-6">
             
@@ -1174,8 +1192,9 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       {/* 9. FINAL HEALTHCARE CTA — ABOVE FOOTER (Dark navy/medical blue) */}
       <section className="relative overflow-hidden bg-[#061229] text-white py-20 sm:py-28 border-t border-blue-950">
         
-        {/* Background Video (If 1000240376.mp4 is available) */}
+        {/* Background Video */}
         <video
+          ref={ctaVideoRef}
           autoPlay
           muted
           loop
@@ -1185,8 +1204,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none opacity-40"
           style={{ objectFit: 'cover' }}
         >
-          <source src="/assets/1000240376.mp4" type="video/mp4" />
-          <source src="/1000240376.mp4" type="video/mp4" />
+          <source src="/assets/1000240377.mp4" type="video/mp4" />
         </video>
 
         {/* Lightweight Animated Healthcare Graphics / Network Background */}
