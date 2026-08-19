@@ -17,7 +17,9 @@ import {
   UserRole
 } from '../src/types.js';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+// Support both standard server (local/container) and Vercel Serverless (where process.cwd() is read-only)
+const isVercel = !!process.env.VERCEL;
+const DATA_DIR = isVercel ? '/tmp/mediverse-data' : path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 interface DatabaseSchema {
@@ -83,73 +85,65 @@ const DEFAULT_DOCTORS: Doctor[] = [
   }
 ];
 
-function initDb(): DatabaseSchema {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
+// In-memory memory fallback in case filesystem is completely locked
+let memoryCache: DatabaseSchema | null = null;
 
-  if (!fs.existsSync(DB_FILE)) {
-    const initialData: DatabaseSchema = {
-      users: [],
-      appointments: [],
-      bmiRecords: [],
-      reports: [],
-      contactMessages: [],
-      doctors: DEFAULT_DOCTORS,
-      reviews: [],
-      feedbacks: [],
-      prescriptions: [],
-      clinicalNotes: [],
-      patientDoctorRelationships: [],
-      auditLogs: []
-    };
-    fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
-    return initialData;
+function createDefaultDb(): DatabaseSchema {
+  return {
+    users: [],
+    appointments: [],
+    bmiRecords: [],
+    reports: [],
+    contactMessages: [],
+    doctors: DEFAULT_DOCTORS,
+    reviews: [],
+    feedbacks: [],
+    prescriptions: [],
+    clinicalNotes: [],
+    patientDoctorRelationships: [],
+    auditLogs: []
+  };
+}
+
+function initDb(): DatabaseSchema {
+  if (memoryCache) {
+    return memoryCache;
   }
 
   try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+
+    if (!fs.existsSync(DB_FILE)) {
+      const initialData = createDefaultDb();
+      try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
+      } catch (writeErr) {
+        console.warn('Could not write initial db file, using in-memory state:', writeErr);
+      }
+      memoryCache = initialData;
+      return initialData;
+    }
+
     const raw = fs.readFileSync(DB_FILE, 'utf-8');
     const parsed = JSON.parse(raw);
     if (!parsed.doctors || parsed.doctors.length === 0) {
       parsed.doctors = DEFAULT_DOCTORS;
     }
-    if (!Array.isArray(parsed.reviews)) {
-      parsed.reviews = [];
-    }
-    if (!Array.isArray(parsed.feedbacks)) {
-      parsed.feedbacks = [];
-    }
-    if (!Array.isArray(parsed.prescriptions)) {
-      parsed.prescriptions = [];
-    }
-    if (!Array.isArray(parsed.clinicalNotes)) {
-      parsed.clinicalNotes = [];
-    }
-    if (!Array.isArray(parsed.patientDoctorRelationships)) {
-      parsed.patientDoctorRelationships = [];
-    }
-    if (!Array.isArray(parsed.auditLogs)) {
-      parsed.auditLogs = [];
-    }
-    fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+    if (!Array.isArray(parsed.reviews)) parsed.reviews = [];
+    if (!Array.isArray(parsed.feedbacks)) parsed.feedbacks = [];
+    if (!Array.isArray(parsed.prescriptions)) parsed.prescriptions = [];
+    if (!Array.isArray(parsed.clinicalNotes)) parsed.clinicalNotes = [];
+    if (!Array.isArray(parsed.patientDoctorRelationships)) parsed.patientDoctorRelationships = [];
+    if (!Array.isArray(parsed.auditLogs)) parsed.auditLogs = [];
+
+    memoryCache = parsed;
     return parsed;
   } catch (err) {
-    console.error('Error reading DB file, recreating:', err);
-    const initialData: DatabaseSchema = {
-      users: [],
-      appointments: [],
-      bmiRecords: [],
-      reports: [],
-      contactMessages: [],
-      doctors: DEFAULT_DOCTORS,
-      reviews: [],
-      feedbacks: [],
-      prescriptions: [],
-      clinicalNotes: [],
-      patientDoctorRelationships: [],
-      auditLogs: []
-    };
-    fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
+    console.warn('DB read error, initializing fallback in-memory db:', err);
+    const initialData = createDefaultDb();
+    memoryCache = initialData;
     return initialData;
   }
 }
@@ -160,10 +154,15 @@ export const db = {
   },
 
   save(data: DatabaseSchema) {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
+    memoryCache = data;
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('DB file write warning (persisting in memory):', err);
     }
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
   },
 
   hashPassword(password: string): string {
@@ -221,7 +220,6 @@ export const db = {
       timestamp: new Date().toISOString()
     };
     data.auditLogs.unshift(newLog);
-    // Keep max 2000 logs
     if (data.auditLogs.length > 2000) {
       data.auditLogs = data.auditLogs.slice(0, 2000);
     }
