@@ -92,28 +92,134 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     }
   };
 
-  // Video refs to guarantee autoplay even in restrictive browser environments
+  // Video refs to guarantee autoplay and diagnostics across desktop & mobile
   const heroVideoRef = useRef<HTMLVideoElement | null>(null);
   const ctaVideoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     fetchReviews();
 
-    // Ensure hero and CTA videos start playing
-    const initVideo = (video: HTMLVideoElement | null) => {
+    const video = heroVideoRef.current;
+    if (!video) return;
+
+    const videoUrl = '/assets/1000240377.mp4';
+    console.log('[Hero Video] Target video URL:', videoUrl);
+
+    // Ensure audio tracks are strictly disabled so autoplay policy is satisfied on mobile iOS & Android
+    video.muted = true;
+    video.defaultMuted = true;
+    video.playsInline = true;
+
+    // Comprehensive diagnostics listeners
+    const onLoadedMetadata = () => {
+      console.log('[Hero Video] loadedmetadata - Duration:', video.duration, 'Resolution:', video.videoWidth, 'x', video.videoHeight);
+      attemptPlay();
+    };
+
+    const onCanPlay = () => {
+      console.log('[Hero Video] canplay - ReadyState:', video.readyState);
+      attemptPlay();
+    };
+
+    const onPlaying = () => {
+      console.log('[Hero Video] playing - Video is actively rendering frames on screen');
+    };
+
+    const onWaiting = () => {
+      console.log('[Hero Video] waiting - Buffering stream');
+    };
+
+    const onStalled = () => {
+      console.log('[Hero Video] stalled - Network stalled');
+    };
+
+    const onError = (e: Event) => {
+      console.warn('[Hero Video] error - Video stream error encountered:', video.error?.message || video.error?.code || 'Unknown', e);
+      // Requirement: Do NOT hide, replace, pause, or remove the video because of an error
+    };
+
+    const attemptPlay = () => {
       if (!video) return;
-      video.defaultMuted = true;
       video.muted = true;
       const playPromise = video.play();
       if (playPromise !== undefined) {
-        playPromise.catch(() => {
-          // Handled silently if autoplay policy requires user interaction
-        });
+        playPromise
+          .then(() => {
+            console.log('[Hero Video] play() resolved successfully - continuous playback running');
+          })
+          .catch((err) => {
+            console.warn('[Hero Video] play() rejected (browser policy restriction):', err?.message || err);
+            // Autoplay initially blocked by browser policy - register interaction fallback
+            attachInteractionListeners();
+          });
       }
     };
 
-    initVideo(heroVideoRef.current);
-    initVideo(ctaVideoRef.current);
+    let interactionAttached = false;
+    const handleInteraction = () => {
+      if (!video) return;
+      console.log('[Hero Video] Retrying play() on user interaction or visibility change');
+      video.muted = true;
+      video.play()
+        .then(() => {
+          console.log('[Hero Video] Playback resumed successfully on interaction');
+          removeInteractionListeners();
+        })
+        .catch((err) => {
+          console.warn('[Hero Video] Interaction play() rejection:', err?.message || err);
+        });
+    };
+
+    const attachInteractionListeners = () => {
+      if (interactionAttached) return;
+      interactionAttached = true;
+      window.addEventListener('touchstart', handleInteraction, { passive: true, once: true });
+      window.addEventListener('pointerdown', handleInteraction, { passive: true, once: true });
+      window.addEventListener('click', handleInteraction, { passive: true, once: true });
+      window.addEventListener('scroll', handleInteraction, { passive: true, once: true });
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          handleInteraction();
+        }
+      });
+    };
+
+    const removeInteractionListeners = () => {
+      interactionAttached = false;
+      window.removeEventListener('touchstart', handleInteraction);
+      window.removeEventListener('pointerdown', handleInteraction);
+      window.removeEventListener('click', handleInteraction);
+      window.removeEventListener('scroll', handleInteraction);
+    };
+
+    video.addEventListener('loadedmetadata', onLoadedMetadata);
+    video.addEventListener('canplay', onCanPlay);
+    video.addEventListener('playing', onPlaying);
+    video.addEventListener('waiting', onWaiting);
+    video.addEventListener('stalled', onStalled);
+    video.addEventListener('error', onError);
+
+    // Initial play trigger
+    attemptPlay();
+
+    // CTA video autoplay helper
+    const ctaVideo = ctaVideoRef.current;
+    if (ctaVideo) {
+      ctaVideo.muted = true;
+      ctaVideo.defaultMuted = true;
+      ctaVideo.playsInline = true;
+      ctaVideo.play().catch(() => {});
+    }
+
+    return () => {
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.removeEventListener('canplay', onCanPlay);
+      video.removeEventListener('playing', onPlaying);
+      video.removeEventListener('waiting', onWaiting);
+      video.removeEventListener('stalled', onStalled);
+      video.removeEventListener('error', onError);
+      removeInteractionListeners();
+    };
   }, []);
 
   // Handle real review submission
@@ -372,6 +478,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         {/* Background Video: Layer 0 */}
         <video
           ref={heroVideoRef}
+          src="/assets/1000240377.mp4"
           autoPlay
           muted
           loop
