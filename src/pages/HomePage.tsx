@@ -491,8 +491,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           <source src="/assets/1000240377.mp4" type="video/mp4" />
         </video>
 
-        {/* Semi-transparent dark blue overlay: Layer 1 (allowing video to be clearly visible) */}
-        <div className="absolute inset-0 z-10 bg-gradient-to-b from-[#07132c]/40 via-[#07132c]/25 to-[#07132c]/50 pointer-events-none" />
+        {/* Subtle transparent overlay: Layer 1 (allowing video frames to be vividly visible while keeping text legible) */}
+        <div className="absolute inset-0 z-10 bg-slate-950/20 pointer-events-none" />
 
         {/* Hero Content: Layer 2 */}
         <div className="relative z-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
