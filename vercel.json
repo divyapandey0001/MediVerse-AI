@@ -13,17 +13,13 @@
       "destination": "/api/[...path]"
     },
     {
-      "source": "/assets/(.*)",
-      "destination": "/assets/$1"
-    },
-    {
-      "source": "/((?!assets/|api/).*)",
+      "source": "/((?!api/|.*\\.[\\w]+$).*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
     {
-      "source": "/assets/(.*\\.mp4)",
+      "source": "/(.*\\.mp4)",
       "headers": [
         {
           "key": "Content-Type",

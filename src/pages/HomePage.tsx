@@ -489,6 +489,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           style={{ objectFit: 'cover', width: '100%', height: '100%' }}
         >
           <source src="/assets/1000240377.mp4" type="video/mp4" />
+          <source src="/1000240377.mp4" type="video/mp4" />
         </video>
 
         {/* Subtle transparent overlay: Layer 1 (allowing video frames to be vividly visible while keeping text legible) */}
