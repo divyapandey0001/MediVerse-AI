@@ -1,22 +1,33 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, LabReportAnalysis } from '../types.js';
 
+interface SignupParams {
+  name: string;
+  email: string;
+  password: string;
+  role?: 'patient' | 'doctor';
+  phone?: string;
+  age?: number;
+  dateOfBirth?: string;
+  gender?: string;
+  bloodGroup?: string;
+  allergies?: string;
+  emergencyContact?: string;
+  specialty?: string;
+  qualification?: string;
+  department?: string;
+  licenseNumber?: string;
+  hospitalAffiliation?: string;
+}
+
 interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
   activeReport: LabReportAnalysis | null;
   setActiveReport: (report: LabReportAnalysis | null) => void;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  signup: (
-    name: string,
-    email: string,
-    password: string,
-    phone?: string,
-    age?: number,
-    gender?: string,
-    bloodGroup?: string
-  ) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; user?: User; error?: string }>;
+  signup: (params: SignupParams) => Promise<{ success: boolean; user?: User; error?: string }>;
   logout: () => void;
   updateProfile: (profileData: Partial<User>) => Promise<{ success: boolean; error?: string }>;
   refreshUser: () => Promise<void>;
@@ -91,26 +102,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.setItem('mediverse_token', data.token);
       setToken(data.token);
       setUser(data.user);
-      return { success: true };
+      return { success: true, user: data.user };
     } catch (err: any) {
       return { success: false, error: 'Network error during login.' };
     }
   };
 
-  const signup = async (
-    name: string,
-    email: string,
-    password: string,
-    phone?: string,
-    age?: number,
-    gender?: string,
-    bloodGroup?: string
-  ) => {
+  const signup = async (params: SignupParams) => {
     try {
       const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, phone, age, gender, bloodGroup })
+        body: JSON.stringify(params)
       });
       const data = await res.json();
       if (!res.ok) {
@@ -119,7 +122,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.setItem('mediverse_token', data.token);
       setToken(data.token);
       setUser(data.user);
-      return { success: true };
+      return { success: true, user: data.user };
     } catch (err: any) {
       return { success: false, error: 'Network error during signup.' };
     }

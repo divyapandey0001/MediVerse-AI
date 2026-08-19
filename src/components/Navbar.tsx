@@ -145,21 +145,28 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
               <div className="flex items-center gap-2">
                 <button
                   id="nav-user-profile-btn"
-                  onClick={() => handleNav('profile')}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-all ${
-                    currentPage === 'profile'
-                      ? 'bg-blue-600 text-white shadow-sm'
+                  onClick={() => handleNav(user.role === 'doctor' ? 'doctor-dashboard' : 'patient-dashboard')}
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer ${
+                    currentPage === 'doctor-dashboard' || currentPage === 'patient-dashboard' || currentPage === 'profile'
+                      ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
                       : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
                   }`}
                 >
-                  <UserIcon className="w-4 h-4" />
+                  {user.role === 'doctor' ? (
+                    <Stethoscope className="w-4 h-4 text-blue-600 group-hover:text-white" />
+                  ) : (
+                    <UserIcon className="w-4 h-4 text-blue-600 group-hover:text-white" />
+                  )}
                   <span className="max-w-[130px] truncate">{user.name.split(' ')[0]}</span>
+                  <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-white/30 text-current">
+                    {user.role === 'doctor' ? 'MD' : (user.patientId || 'PT')}
+                  </span>
                 </button>
                 <button
                   id="nav-logout-btn"
                   onClick={logout}
                   title="Log out"
-                  className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
                 >
                   <LogOut className="w-4 h-4" />
                 </button>
@@ -169,14 +176,14 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
                 <button
                   id="nav-login-btn"
                   onClick={() => handleNav('login')}
-                  className="px-4 py-2 text-sm font-medium text-slate-700 hover:text-blue-600 hover:bg-slate-50 rounded-lg transition-colors"
+                  className="px-4 py-2 text-sm font-medium text-slate-700 hover:text-blue-600 hover:bg-slate-50 rounded-xl transition-colors cursor-pointer"
                 >
                   Login
                 </button>
                 <button
                   id="nav-signup-btn"
                   onClick={() => handleNav('signup')}
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-600/20 transition-all active:scale-95"
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm shadow-blue-600/20 transition-all active:scale-95 cursor-pointer"
                 >
                   Sign Up
                 </button>
@@ -262,11 +269,13 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
               <>
                 <button
                   id="mobile-drawer-profile"
-                  onClick={() => handleNav('profile')}
-                  className="w-full py-3 px-4 rounded-lg bg-blue-600 text-white font-medium text-center flex items-center justify-center gap-2 shadow-xs"
+                  onClick={() => handleNav(user.role === 'doctor' ? 'doctor-dashboard' : 'patient-dashboard')}
+                  className="w-full py-3 px-4 rounded-xl bg-blue-600 text-white font-medium text-center flex items-center justify-center gap-2 shadow-xs cursor-pointer"
                 >
-                  <UserIcon className="w-5 h-5" />
-                  <span>My Health Profile ({user.name})</span>
+                  {user.role === 'doctor' ? <Stethoscope className="w-5 h-5" /> : <UserIcon className="w-5 h-5" />}
+                  <span>
+                    {user.role === 'doctor' ? 'Doctor Portal' : 'Patient Portal'} ({user.name})
+                  </span>
                 </button>
                 <button
                   id="mobile-drawer-logout"
@@ -274,7 +283,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
                     logout();
                     setMobileMenuOpen(false);
                   }}
-                  className="w-full py-2.5 px-4 rounded-lg border border-slate-200 text-slate-600 font-medium text-center hover:bg-red-50 hover:text-red-600 transition-colors"
+                  className="w-full py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 font-medium text-center hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer"
                 >
                   Log Out
                 </button>
@@ -284,14 +293,14 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
                 <button
                   id="mobile-drawer-login"
                   onClick={() => handleNav('login')}
-                  className="w-full py-2.5 px-4 rounded-lg border border-slate-300 text-slate-700 font-medium text-center hover:bg-slate-50"
+                  className="w-full py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 font-medium text-center hover:bg-slate-50 cursor-pointer"
                 >
                   Login
                 </button>
                 <button
                   id="mobile-drawer-signup"
                   onClick={() => handleNav('signup')}
-                  className="w-full py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-center shadow-xs"
+                  className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-center shadow-xs cursor-pointer"
                 >
                   Sign Up
                 </button>

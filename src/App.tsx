@@ -10,13 +10,17 @@ import { BmiCalculatorPage } from './pages/BmiCalculatorPage.js';
 import { AppointmentPage } from './pages/AppointmentPage.js';
 import { HealthChatPage } from './pages/HealthChatPage.js';
 import { ProfilePage } from './pages/ProfilePage.js';
+import { PatientDashboard } from './pages/PatientDashboard.js';
+import { DoctorDashboard } from './pages/DoctorDashboard.js';
 import { AboutPage } from './pages/AboutPage.js';
 import { ContactPage } from './pages/ContactPage.js';
 import { LoginPage, SignUpPage, ForgotPasswordPage } from './pages/AuthPages.js';
 import { MessageSquare } from 'lucide-react';
+import { useAuth } from './context/AuthContext.js';
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<string>('home');
+  const { user } = useAuth();
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -39,11 +43,19 @@ function AppContent() {
       case 'bmi':
         return <BmiCalculatorPage onNavigate={setCurrentPage} />;
       case 'appointment':
+      case 'appointments':
         return <AppointmentPage onNavigate={setCurrentPage} />;
       case 'ai-chat':
         return <HealthChatPage onNavigate={setCurrentPage} />;
+      case 'patient-dashboard':
+        return <PatientDashboard onNavigate={setCurrentPage} />;
+      case 'doctor-dashboard':
+        return <DoctorDashboard onNavigate={setCurrentPage} />;
       case 'profile':
-        return <ProfilePage onNavigate={setCurrentPage} />;
+        if (user?.role === 'doctor') {
+          return <DoctorDashboard onNavigate={setCurrentPage} />;
+        }
+        return <PatientDashboard onNavigate={setCurrentPage} />;
       case 'about':
         return <AboutPage onNavigate={setCurrentPage} />;
       case 'contact':

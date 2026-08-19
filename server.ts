@@ -9,7 +9,21 @@ import {
   analyzeSymptoms,
   lookupMedicineInfo
 } from './server/gemini.js';
-import { User, Appointment, BmiRecord, LabReportAnalysis, ContactMessage, Doctor, Review, UserFeedback } from './src/types.js';
+import {
+  User,
+  UserRole,
+  Appointment,
+  BmiRecord,
+  LabReportAnalysis,
+  ContactMessage,
+  Doctor,
+  Review,
+  UserFeedback,
+  Prescription,
+  ClinicalNote,
+  PatientDoctorRelationship,
+  AuditLog
+} from './src/types.js';
 
 dotenv.config();
 
@@ -23,13 +37,21 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   // Helper auth middleware
-  function authenticate(req: Request): string | null {
+  function authenticateUser(req: Request): User | null {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return null;
     }
     const token = authHeader.split(' ')[1];
-    return db.verifyToken(token);
+    const userId = db.verifyToken(token);
+    if (!userId) return null;
+    const data = db.get();
+    return data.users.find(u => u.id === userId) || null;
+  }
+
+  function authenticate(req: Request): string | null {
+    const user = authenticateUser(req);
+    return user ? user.id : null;
   }
 
   // --- API Routes ---
@@ -41,28 +63,80 @@ async function startServer() {
   // 1. Authentication Endpoints
   app.post('/api/auth/signup', (req: Request, res: Response) => {
     try {
-      const { name, email, password, phone } = req.body;
+      const {
+        name,
+        email,
+        password,
+        phone,
+        role = 'patient',
+        age,
+        dateOfBirth,
+        gender,
+        bloodGroup,
+        allergies,
+        emergencyContact,
+        specialty,
+        qualification,
+        department,
+        licenseNumber,
+        hospitalAffiliation
+      } = req.body;
+
       if (!name || !email || !password) {
         return res.status(400).json({ error: 'Name, email, and password are required.' });
       }
 
       const normalizedEmail = email.trim().toLowerCase();
+      const userRole: UserRole = role === 'doctor' ? 'doctor' : 'patient';
       const data = db.get();
+
       if (data.users.some(u => u.email === normalizedEmail)) {
         return res.status(409).json({ error: 'An account with this email already exists.' });
       }
 
       const userId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-      const newUser = {
+      const patientId = userRole === 'patient' ? db.generatePatientId() : undefined;
+
+      const newUser: User & { passwordHash: string } = {
         id: userId,
         name: name.trim(),
         email: normalizedEmail,
-        phone: phone ? phone.trim() : '',
+        role: userRole,
+        patientId,
+        phone: phone ? phone.trim() : undefined,
+        age: age ? Number(age) : undefined,
+        dateOfBirth: dateOfBirth ? dateOfBirth.trim() : undefined,
+        gender: gender ? gender.trim() : undefined,
+        bloodGroup: bloodGroup ? bloodGroup.trim() : undefined,
+        allergies: allergies ? allergies.trim() : undefined,
+        emergencyContact: emergencyContact ? emergencyContact.trim() : undefined,
+        specialty: userRole === 'doctor' ? (specialty ? specialty.trim() : 'General Medicine') : undefined,
+        qualification: userRole === 'doctor' ? (qualification ? qualification.trim() : 'MD') : undefined,
+        department: userRole === 'doctor' ? (department ? department.trim() : 'General Practice') : undefined,
+        licenseNumber: userRole === 'doctor' ? (licenseNumber ? licenseNumber.trim() : `MED-${Math.floor(100000 + Math.random() * 900000)}`) : undefined,
+        hospitalAffiliation: userRole === 'doctor' ? (hospitalAffiliation ? hospitalAffiliation.trim() : 'MediVerse Healthcare Network') : undefined,
         createdAt: new Date().toISOString(),
         passwordHash: db.hashPassword(password)
       };
 
       data.users.push(newUser);
+
+      // If registered as doctor, also ensure entry in doctors list for appointment booking
+      if (userRole === 'doctor') {
+        const existingDoc = data.doctors.find(d => d.name.toLowerCase() === newUser.name.toLowerCase());
+        if (!existingDoc) {
+          data.doctors.push({
+            id: `doc_${userId}`,
+            name: newUser.name.startsWith('Dr.') ? newUser.name : `Dr. ${newUser.name}`,
+            specialty: newUser.specialty || 'General Medicine',
+            qualification: newUser.qualification || 'MD',
+            department: newUser.department || 'General Practice',
+            experience: '8+ years',
+            availableDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+          });
+        }
+      }
+
       db.save(data);
 
       const token = db.generateToken(userId);
@@ -90,6 +164,15 @@ async function startServer() {
         return res.status(401).json({ error: 'Invalid email or password.' });
       }
 
+      // Backward compatibility for existing users without role or patientId
+      if (!user.role) {
+        user.role = 'patient';
+      }
+      if (user.role === 'patient' && !user.patientId) {
+        user.patientId = db.generatePatientId();
+        db.save(data);
+      }
+
       const token = db.generateToken(user.id);
       const { passwordHash: _, ...safeUser } = user;
 
@@ -109,8 +192,7 @@ async function startServer() {
       const data = db.get();
       const user = data.users.find(u => u.email === email.trim().toLowerCase());
       if (!user) {
-        // Return friendly message even if email not found for safety
-        return res.json({ message: 'If an account exists with this email, password reset instructions have been simulated.' });
+        return res.json({ message: 'If an account exists with this email, password reset instructions have been generated.' });
       }
       res.json({ message: `Password reset link has been sent to ${email}.` });
     } catch (err: any) {
@@ -120,16 +202,11 @@ async function startServer() {
 
   app.get('/api/auth/me', (req: Request, res: Response) => {
     try {
-      const userId = authenticate(req);
-      if (!userId) {
+      const user = authenticateUser(req);
+      if (!user) {
         return res.status(401).json({ error: 'Unauthorized.' });
       }
-      const data = db.get();
-      const user = data.users.find(u => u.id === userId);
-      if (!user) {
-        return res.status(404).json({ error: 'User not found.' });
-      }
-      const { passwordHash: _, ...safeUser } = user;
+      const { passwordHash: _, ...safeUser } = user as any;
       res.json({ user: safeUser });
     } catch (err: any) {
       res.status(500).json({ error: 'Failed to fetch user profile.' });
@@ -138,24 +215,50 @@ async function startServer() {
 
   app.put('/api/auth/profile', (req: Request, res: Response) => {
     try {
-      const userId = authenticate(req);
-      if (!userId) {
+      const user = authenticateUser(req);
+      if (!user) {
         return res.status(401).json({ error: 'Unauthorized.' });
       }
       const data = db.get();
-      const userIndex = data.users.findIndex(u => u.id === userId);
+      const userIndex = data.users.findIndex(u => u.id === user.id);
       if (userIndex === -1) {
         return res.status(404).json({ error: 'User not found.' });
       }
 
-      const { name, phone, age, gender, bloodGroup, allergies, emergencyContact } = req.body;
+      const {
+        name,
+        phone,
+        age,
+        dateOfBirth,
+        gender,
+        bloodGroup,
+        allergies,
+        emergencyContact,
+        address,
+        specialty,
+        qualification,
+        department,
+        licenseNumber,
+        hospitalAffiliation
+      } = req.body;
+
       if (name) data.users[userIndex].name = name;
       if (phone !== undefined) data.users[userIndex].phone = phone;
       if (age !== undefined) data.users[userIndex].age = Number(age) || undefined;
+      if (dateOfBirth !== undefined) data.users[userIndex].dateOfBirth = dateOfBirth;
       if (gender !== undefined) data.users[userIndex].gender = gender;
       if (bloodGroup !== undefined) data.users[userIndex].bloodGroup = bloodGroup;
       if (allergies !== undefined) data.users[userIndex].allergies = allergies;
       if (emergencyContact !== undefined) data.users[userIndex].emergencyContact = emergencyContact;
+      if (address !== undefined) data.users[userIndex].address = address;
+
+      if (data.users[userIndex].role === 'doctor') {
+        if (specialty !== undefined) data.users[userIndex].specialty = specialty;
+        if (qualification !== undefined) data.users[userIndex].qualification = qualification;
+        if (department !== undefined) data.users[userIndex].department = department;
+        if (licenseNumber !== undefined) data.users[userIndex].licenseNumber = licenseNumber;
+        if (hospitalAffiliation !== undefined) data.users[userIndex].hospitalAffiliation = hospitalAffiliation;
+      }
 
       db.save(data);
       const { passwordHash: _, ...safeUser } = data.users[userIndex];
@@ -268,13 +371,22 @@ async function startServer() {
   // 6. Appointments Endpoints
   app.get('/api/appointments', (req: Request, res: Response) => {
     try {
-      const userId = authenticate(req);
+      const user = authenticateUser(req);
       const data = db.get();
-      if (userId) {
-        const userAppts = data.appointments.filter(a => a.userId === userId);
-        return res.json({ appointments: userAppts });
+      if (user) {
+        if (user.role === 'doctor') {
+          // Return appointments for this doctor by doctorName or doctorUserId
+          const docAppts = data.appointments.filter(
+            a => a.doctorUserId === user.id || a.doctorName.toLowerCase().includes(user.name.toLowerCase())
+          );
+          return res.json({ appointments: docAppts });
+        } else {
+          // Return appointments for this patient
+          const userAppts = data.appointments.filter(a => a.userId === user.id || a.email.toLowerCase() === user.email.toLowerCase());
+          return res.json({ appointments: userAppts });
+        }
       }
-      // If unauthenticated, return empty or search by email/phone if provided via query
+      // If unauthenticated, return search by email if provided
       const emailQuery = req.query.email as string;
       if (emailQuery) {
         const matching = data.appointments.filter(a => a.email.toLowerCase() === emailQuery.toLowerCase());
@@ -293,14 +405,21 @@ async function startServer() {
         return res.status(400).json({ error: 'All appointment fields are required.' });
       }
 
-      const userId = authenticate(req) || undefined;
+      const user = authenticateUser(req);
       const data = db.get();
+
+      // Find matching doctor user if any
+      const matchingDoctor = data.users.find(
+        u => u.role === 'doctor' && (u.name.toLowerCase() === doctorName.toLowerCase() || doctorName.toLowerCase().includes(u.name.toLowerCase()))
+      );
 
       const appointmentCode = `MV-APT-${Math.floor(100000 + Math.random() * 900000)}`;
       const newAppointment: Appointment = {
         id: `apt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         appointmentCode,
-        userId,
+        userId: user?.id,
+        doctorId: matchingDoctor ? matchingDoctor.id : undefined,
+        doctorUserId: matchingDoctor ? matchingDoctor.id : undefined,
         patientName: patientName.trim(),
         email: email.trim(),
         phone: phone.trim(),
@@ -314,6 +433,27 @@ async function startServer() {
       };
 
       data.appointments.unshift(newAppointment);
+
+      // If user is patient and doctor exists, create relationship automatically
+      if (user && user.role === 'patient' && matchingDoctor) {
+        const relExists = data.patientDoctorRelationships.some(
+          r => r.patientUserId === user.id && r.doctorUserId === matchingDoctor.id
+        );
+        if (!relExists) {
+          data.patientDoctorRelationships.push({
+            id: `pdr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            patientUserId: user.id,
+            patientId: user.patientId || `PT-${Math.floor(100000 + Math.random() * 900000)}`,
+            patientName: user.name,
+            patientEmail: user.email,
+            doctorUserId: matchingDoctor.id,
+            doctorName: matchingDoctor.name,
+            status: 'active',
+            createdAt: new Date().toISOString()
+          });
+        }
+      }
+
       db.save(data);
 
       res.status(201).json({ success: true, appointment: newAppointment });
@@ -325,7 +465,7 @@ async function startServer() {
 
   app.delete('/api/appointments/:id', (req: Request, res: Response) => {
     try {
-      const userId = authenticate(req);
+      const user = authenticateUser(req);
       const apptId = req.params.id;
       const data = db.get();
       const index = data.appointments.findIndex(a => a.id === apptId);
@@ -335,8 +475,12 @@ async function startServer() {
       }
 
       // Check ownership if user is logged in
-      if (userId && data.appointments[index].userId && data.appointments[index].userId !== userId) {
-        return res.status(403).json({ error: 'Unauthorized to cancel this appointment.' });
+      if (user) {
+        const appt = data.appointments[index];
+        const isOwner = appt.userId === user.id || appt.doctorUserId === user.id || appt.email.toLowerCase() === user.email.toLowerCase();
+        if (!isOwner) {
+          return res.status(403).json({ error: 'Unauthorized to cancel this appointment.' });
+        }
       }
 
       data.appointments[index].status = 'Cancelled';
@@ -358,39 +502,15 @@ async function startServer() {
     }
   });
 
-  app.post('/api/doctors', (req: Request, res: Response) => {
-    try {
-      const { name, specialty, qualification, department, experience, availableDays } = req.body;
-      if (!name || !specialty || !department) {
-        return res.status(400).json({ error: 'Doctor name, specialty, and department are required.' });
-      }
-      const data = db.get();
-      const newDoc: Doctor = {
-        id: `doc_${Date.now()}`,
-        name: name.trim(),
-        specialty: specialty.trim(),
-        qualification: (qualification || 'MD').trim(),
-        department: department.trim(),
-        experience: (experience || '5+ years').trim(),
-        availableDays: availableDays && availableDays.length ? availableDays : ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-      };
-      data.doctors.push(newDoc);
-      db.save(data);
-      res.status(201).json({ success: true, doctor: newDoc });
-    } catch (err: any) {
-      res.status(500).json({ error: 'Failed to add doctor.' });
-    }
-  });
-
   // 8. BMI Records
   app.get('/api/bmi', (req: Request, res: Response) => {
     try {
-      const userId = authenticate(req);
-      if (!userId) {
+      const user = authenticateUser(req);
+      if (!user) {
         return res.json({ records: [] });
       }
       const data = db.get();
-      const userRecords = data.bmiRecords.filter(r => r.userId === userId);
+      const userRecords = data.bmiRecords.filter(r => r.userId === user.id);
       res.json({ records: userRecords });
     } catch (err: any) {
       res.status(500).json({ error: 'Failed to fetch BMI records.' });
@@ -404,12 +524,12 @@ async function startServer() {
         return res.status(400).json({ error: 'Missing BMI calculation parameters.' });
       }
 
-      const userId = authenticate(req) || undefined;
+      const user = authenticateUser(req);
       const data = db.get();
 
       const newRecord: BmiRecord = {
         id: `bmi_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        userId,
+        userId: user?.id,
         date: new Date().toISOString(),
         age: Number(age) || 30,
         sex: sex || 'Not specified',
@@ -420,7 +540,7 @@ async function startServer() {
         guidance: guidance || []
       };
 
-      if (userId) {
+      if (user) {
         data.bmiRecords.unshift(newRecord);
         db.save(data);
       }
@@ -433,13 +553,13 @@ async function startServer() {
 
   app.delete('/api/bmi/:id', (req: Request, res: Response) => {
     try {
-      const userId = authenticate(req);
-      if (!userId) {
+      const user = authenticateUser(req);
+      if (!user) {
         return res.status(401).json({ error: 'Unauthorized.' });
       }
       const recordId = req.params.id;
       const data = db.get();
-      const index = data.bmiRecords.findIndex(r => r.id === recordId && r.userId === userId);
+      const index = data.bmiRecords.findIndex(r => r.id === recordId && r.userId === user.id);
       if (index === -1) {
         return res.status(404).json({ error: 'Record not found.' });
       }
@@ -451,35 +571,122 @@ async function startServer() {
     }
   });
 
-  // 9. Saved Reports History
+  // 9. Saved Reports History & Report Comparison
   app.get('/api/reports', (req: Request, res: Response) => {
     try {
-      const userId = authenticate(req);
-      if (!userId) {
+      const user = authenticateUser(req);
+      if (!user) {
         return res.json({ reports: [] });
       }
       const data = db.get();
-      const userReports = data.reports.filter(r => r.userId === userId);
+
+      // If doctor requested a specific patient
+      const patientUserId = req.query.patientUserId as string;
+      const patientId = req.query.patientId as string;
+
+      if (user.role === 'doctor' && (patientUserId || patientId)) {
+        // Verify relationship
+        const hasRel = data.patientDoctorRelationships.some(
+          r => r.doctorUserId === user.id && (r.patientUserId === patientUserId || r.patientId === patientId)
+        );
+        if (!hasRel) {
+          return res.status(403).json({ error: 'You are not authorized to view this patient\'s health reports.' });
+        }
+
+        const patientReports = data.reports.filter(
+          r => (patientUserId && r.userId === patientUserId) || (patientId && r.patientId === patientId)
+        );
+
+        db.logAudit({
+          userId: user.id,
+          userName: user.name,
+          role: 'doctor',
+          action: 'REPORT_VIEWED',
+          targetPatientId: patientId || patientUserId,
+          details: `Doctor accessed ${patientReports.length} reports for patient ${patientId || patientUserId}`
+        });
+
+        return res.json({ reports: patientReports });
+      }
+
+      // Patient views own reports
+      const userReports = data.reports.filter(r => r.userId === user.id);
       res.json({ reports: userReports });
     } catch (err: any) {
       res.status(500).json({ error: 'Failed to fetch saved reports.' });
     }
   });
 
+  app.get('/api/reports/:id', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+      const reportId = req.params.id;
+      const data = db.get();
+      const report = data.reports.find(r => r.id === reportId);
+
+      if (!report) {
+        return res.status(404).json({ error: 'Report not found.' });
+      }
+
+      // Check access permission
+      if (report.userId && report.userId !== user.id) {
+        if (user.role === 'doctor') {
+          const hasRel = data.patientDoctorRelationships.some(
+            r => r.doctorUserId === user.id && (r.patientUserId === report.userId || r.patientId === report.patientId)
+          );
+          if (!hasRel) {
+            return res.status(403).json({ error: 'Access denied: Patient has not authorized your practice.' });
+          }
+        } else {
+          return res.status(403).json({ error: 'Access denied: You do not own this private report.' });
+        }
+      }
+
+      db.logAudit({
+        userId: user.id,
+        userName: user.name,
+        role: user.role,
+        action: 'REPORT_VIEWED',
+        recordId: report.id,
+        targetPatientId: report.patientId,
+        details: `${user.name} viewed report "${report.fileName}"`
+      });
+
+      res.json({ report });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to fetch report.' });
+    }
+  });
+
   app.post('/api/reports', (req: Request, res: Response) => {
     try {
-      const userId = authenticate(req);
-      if (!userId) {
+      const user = authenticateUser(req);
+      if (!user) {
         return res.status(401).json({ error: 'Unauthorized.' });
       }
       const analysis: LabReportAnalysis = req.body;
       if (!analysis || !analysis.fileName || !analysis.testResults) {
         return res.status(400).json({ error: 'Invalid analysis payload.' });
       }
-      analysis.userId = userId;
+      analysis.userId = user.id;
+      analysis.patientId = user.patientId;
       const data = db.get();
       data.reports.unshift(analysis);
       db.save(data);
+
+      db.logAudit({
+        userId: user.id,
+        userName: user.name,
+        role: user.role,
+        action: 'REPORT_UPLOADED',
+        recordId: analysis.id,
+        targetPatientId: user.patientId,
+        details: `${user.name} uploaded and saved laboratory analysis for "${analysis.fileName}" (${analysis.testResults.length} parameters)`
+      });
+
       res.status(201).json({ success: true, report: analysis });
     } catch (err: any) {
       res.status(500).json({ error: 'Failed to save report.' });
@@ -488,25 +695,610 @@ async function startServer() {
 
   app.delete('/api/reports/:id', (req: Request, res: Response) => {
     try {
-      const userId = authenticate(req);
-      if (!userId) {
+      const user = authenticateUser(req);
+      if (!user) {
         return res.status(401).json({ error: 'Unauthorized.' });
       }
       const reportId = req.params.id;
       const data = db.get();
-      const index = data.reports.findIndex(r => r.id === reportId && r.userId === userId);
+      const index = data.reports.findIndex(r => r.id === reportId && r.userId === user.id);
       if (index === -1) {
-        return res.status(404).json({ error: 'Report not found.' });
+        return res.status(404).json({ error: 'Report not found or not owned by you.' });
       }
-      data.reports.splice(index, 1);
+
+      const deleted = data.reports.splice(index, 1)[0];
       db.save(data);
-      res.json({ success: true, message: 'Report deleted from history.' });
+
+      db.logAudit({
+        userId: user.id,
+        userName: user.name,
+        role: user.role,
+        action: 'REPORT_DELETED',
+        recordId: reportId,
+        details: `${user.name} permanently deleted laboratory report "${deleted?.fileName}"`
+      });
+
+      res.json({ success: true, message: 'Report permanently deleted.' });
     } catch (err: any) {
       res.status(500).json({ error: 'Failed to delete report.' });
     }
   });
 
-  // 10. Contact Form Endpoint
+  // Report Comparison Endpoint
+  app.post('/api/reports/compare', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+      const { previousReportId, currentReportId } = req.body;
+      if (!previousReportId || !currentReportId) {
+        return res.status(400).json({ error: 'Both previous and current report IDs are required.' });
+      }
+
+      const data = db.get();
+      const prevReport = data.reports.find(r => r.id === previousReportId);
+      const currReport = data.reports.find(r => r.id === currentReportId);
+
+      if (!prevReport || !currReport) {
+        return res.status(404).json({ error: 'One or both reports could not be found.' });
+      }
+
+      // Verify permission
+      if (user.role === 'patient') {
+        if (prevReport.userId !== user.id || currReport.userId !== user.id) {
+          return res.status(403).json({ error: 'Unauthorized to compare these reports.' });
+        }
+      } else if (user.role === 'doctor') {
+        const patientUserId = prevReport.userId || currReport.userId;
+        const hasRel = data.patientDoctorRelationships.some(
+          r => r.doctorUserId === user.id && r.patientUserId === patientUserId
+        );
+        if (!hasRel) {
+          return res.status(403).json({ error: 'Unauthorized: Doctor has no relationship with this patient.' });
+        }
+      }
+
+      // Perform matching and comparison
+      const prevMap = new Map<string, typeof prevReport.testResults[0]>();
+      prevReport.testResults.forEach(t => {
+        prevMap.set(t.testName.trim().toLowerCase(), t);
+      });
+
+      const currMap = new Map<string, typeof currReport.testResults[0]>();
+      currReport.testResults.forEach(t => {
+        currMap.set(t.testName.trim().toLowerCase(), t);
+      });
+
+      const allTestNames = Array.from(new Set([...Array.from(prevMap.keys()), ...Array.from(currMap.keys())]));
+      let matchingCount = 0;
+
+      const comparedTests = allTestNames.map(normName => {
+        const prev = prevMap.get(normName);
+        const curr = currMap.get(normName);
+        const displayName = (curr || prev)!.testName;
+        const unit = (curr || prev)!.unit || '';
+        const referenceRange = (curr || prev)!.referenceRange || '';
+
+        if (prev && curr) {
+          matchingCount++;
+          const prevNum = parseFloat(prev.result.replace(/[^0-9.-]/g, ''));
+          const currNum = parseFloat(curr.result.replace(/[^0-9.-]/g, ''));
+
+          let deltaText = '—';
+          let trend: 'improved' | 'concerning' | 'stable' | 'increased' | 'decreased' | 'single-report' = 'stable';
+          let interpretation = 'Parameters remain steady between both report dates.';
+
+          if (!isNaN(prevNum) && !isNaN(currNum)) {
+            const diff = +(currNum - prevNum).toFixed(2);
+            if (diff > 0) {
+              deltaText = `+${diff} ${unit}`.trim();
+              trend = 'increased';
+            } else if (diff < 0) {
+              deltaText = `${diff} ${unit}`.trim();
+              trend = 'decreased';
+            } else {
+              deltaText = `0 ${unit}`.trim();
+              trend = 'stable';
+            }
+
+            if (prev.status !== 'Normal' && curr.status === 'Normal') {
+              trend = 'improved';
+              interpretation = 'Remarkable improvement towards normal laboratory reference range.';
+            } else if (prev.status === 'Normal' && curr.status !== 'Normal') {
+              trend = 'concerning';
+              interpretation = 'Shifted from normal range to abnormal status. Discuss with your physician.';
+            } else if (trend === 'increased') {
+              interpretation = 'Value increased since previous lab check.';
+            } else if (trend === 'decreased') {
+              interpretation = 'Value decreased since previous lab check.';
+            }
+          }
+
+          return {
+            testName: displayName,
+            unit,
+            referenceRange,
+            prevValue: prev.result,
+            currValue: curr.result,
+            prevStatus: prev.status,
+            currStatus: curr.status,
+            deltaText,
+            trend,
+            generalInterpretation: interpretation
+          };
+        } else if (curr && !prev) {
+          return {
+            testName: displayName,
+            unit,
+            referenceRange,
+            prevValue: null,
+            currValue: curr.result,
+            currStatus: curr.status,
+            deltaText: 'Not in previous report',
+            trend: 'single-report' as const,
+            generalInterpretation: 'New parameter evaluated in current report only.'
+          };
+        } else {
+          return {
+            testName: displayName,
+            unit,
+            referenceRange,
+            prevValue: prev!.result,
+            currValue: null,
+            prevStatus: prev!.status,
+            deltaText: 'Not in current report',
+            trend: 'single-report' as const,
+            generalInterpretation: 'Parameter was checked in earlier report but not repeated in current test.'
+          };
+        }
+      });
+
+      const summary = `Comparison between "${prevReport.fileName}" (${new Date(prevReport.uploadedAt).toLocaleDateString()}) and "${currReport.fileName}" (${new Date(currReport.uploadedAt).toLocaleDateString()}): Analyzed ${comparedTests.length} total test markers across both reports, with ${matchingCount} directly matched parameters for longitudinal tracking.`;
+
+      res.json({
+        comparison: {
+          previousReport: prevReport,
+          currentReport: currReport,
+          comparedTests,
+          matchingCount,
+          summary
+        }
+      });
+    } catch (err: any) {
+      console.error('Report comparison error:', err);
+      res.status(500).json({ error: 'Failed to compare reports.' });
+    }
+  });
+
+  // 10. Prescriptions System (Phases 9 & 10)
+  app.get('/api/prescriptions', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+      const data = db.get();
+
+      if (user.role === 'patient') {
+        const patientPrescriptions = data.prescriptions.filter(
+          p => p.patientUserId === user.id || p.patientId === user.patientId
+        );
+        return res.json({ prescriptions: patientPrescriptions });
+      }
+
+      if (user.role === 'doctor') {
+        const patientUserId = req.query.patientUserId as string;
+        if (patientUserId) {
+          const list = data.prescriptions.filter(
+            p => p.patientUserId === patientUserId && p.doctorUserId === user.id
+          );
+          return res.json({ prescriptions: list });
+        }
+        // Return all prescriptions created by this doctor
+        const docPrescriptions = data.prescriptions.filter(p => p.doctorUserId === user.id);
+        return res.json({ prescriptions: docPrescriptions });
+      }
+
+      res.json({ prescriptions: [] });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to fetch prescriptions.' });
+    }
+  });
+
+  app.post('/api/prescriptions', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user || user.role !== 'doctor') {
+        return res.status(403).json({ error: 'Only licensed doctors can author clinical prescriptions.' });
+      }
+
+      const {
+        patientUserId,
+        patientId,
+        diagnosis,
+        medicines,
+        instructions,
+        additionalNotes,
+        followUpDate
+      } = req.body;
+
+      if (!patientUserId || !diagnosis || !medicines || !Array.isArray(medicines) || medicines.length === 0) {
+        return res.status(400).json({ error: 'Patient selection, diagnosis, and at least one medication are required.' });
+      }
+
+      const data = db.get();
+      const patient = data.users.find(u => u.id === patientUserId);
+      if (!patient) {
+        return res.status(404).json({ error: 'Patient not found.' });
+      }
+
+      // Verify relationship or auto-create
+      const relExists = data.patientDoctorRelationships.some(
+        r => r.patientUserId === patient.id && r.doctorUserId === user.id
+      );
+      if (!relExists) {
+        data.patientDoctorRelationships.push({
+          id: `pdr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          patientUserId: patient.id,
+          patientId: patient.patientId || patientId || `PT-${Math.floor(100000 + Math.random() * 900000)}`,
+          patientName: patient.name,
+          patientEmail: patient.email,
+          doctorUserId: user.id,
+          doctorName: user.name,
+          status: 'active',
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      const prescription: Prescription = {
+        id: `rx_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        prescriptionNumber: db.generatePrescriptionNumber(),
+        patientUserId: patient.id,
+        patientId: patient.patientId || patientId || 'PT-UNKNOWN',
+        patientName: patient.name,
+        patientAge: patient.age,
+        patientGender: patient.gender,
+        doctorUserId: user.id,
+        doctorName: user.name.startsWith('Dr.') ? user.name : `Dr. ${user.name}`,
+        doctorSpecialty: user.specialty || 'General Medicine',
+        doctorQualification: user.qualification || 'MD',
+        doctorLicense: user.licenseNumber || 'LIC-VERIFIED',
+        diagnosis: diagnosis.trim(),
+        medicines: medicines.map((m: any) => ({
+          name: m.name.trim(),
+          strength: (m.strength || '').trim(),
+          frequency: (m.frequency || 'Once daily').trim(),
+          duration: (m.duration || '7 days').trim(),
+          instructions: (m.instructions || 'As directed').trim()
+        })),
+        instructions: (instructions || 'Take medications exactly as prescribed with water.').trim(),
+        additionalNotes: additionalNotes ? additionalNotes.trim() : undefined,
+        followUpDate: followUpDate ? followUpDate.trim() : undefined,
+        createdAt: new Date().toISOString()
+      };
+
+      data.prescriptions.unshift(prescription);
+      db.save(data);
+
+      db.logAudit({
+        userId: user.id,
+        userName: user.name,
+        role: 'doctor',
+        action: 'PRESCRIPTION_CREATED',
+        recordId: prescription.id,
+        targetPatientId: prescription.patientId,
+        details: `Dr. ${user.name} generated official prescription ${prescription.prescriptionNumber} for patient ${patient.name} (Diagnosis: ${prescription.diagnosis})`
+      });
+
+      res.status(201).json({ success: true, prescription });
+    } catch (err: any) {
+      console.error('Create prescription error:', err);
+      res.status(500).json({ error: 'Failed to create prescription.' });
+    }
+  });
+
+  // 11. Clinical Notes Endpoints (Phase 8)
+  app.get('/api/clinical-notes', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+      const data = db.get();
+
+      if (user.role === 'patient') {
+        const notes = data.clinicalNotes.filter(n => n.patientUserId === user.id);
+        return res.json({ clinicalNotes: notes });
+      }
+
+      if (user.role === 'doctor') {
+        const patientUserId = req.query.patientUserId as string;
+        if (patientUserId) {
+          const notes = data.clinicalNotes.filter(n => n.patientUserId === patientUserId);
+          return res.json({ clinicalNotes: notes });
+        }
+        const doctorNotes = data.clinicalNotes.filter(n => n.doctorUserId === user.id);
+        return res.json({ clinicalNotes: doctorNotes });
+      }
+
+      res.json({ clinicalNotes: [] });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to fetch clinical notes.' });
+    }
+  });
+
+  app.post('/api/clinical-notes', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user || user.role !== 'doctor') {
+        return res.status(403).json({ error: 'Only doctors can create clinical notes.' });
+      }
+
+      const { patientUserId, diagnosis, clinicalObservations, treatmentPlan, followUpDate } = req.body;
+      if (!patientUserId || !diagnosis || !clinicalObservations || !treatmentPlan) {
+        return res.status(400).json({ error: 'Diagnosis, clinical observations, and treatment plan are required.' });
+      }
+
+      const data = db.get();
+      const patient = data.users.find(u => u.id === patientUserId);
+      if (!patient) {
+        return res.status(404).json({ error: 'Patient not found.' });
+      }
+
+      const newNote: ClinicalNote = {
+        id: `cn_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientUserId: patient.id,
+        patientId: patient.patientId || 'PT-UNKNOWN',
+        patientName: patient.name,
+        doctorUserId: user.id,
+        doctorName: user.name.startsWith('Dr.') ? user.name : `Dr. ${user.name}`,
+        doctorSpecialty: user.specialty || 'General Medicine',
+        diagnosis: diagnosis.trim(),
+        clinicalObservations: clinicalObservations.trim(),
+        treatmentPlan: treatmentPlan.trim(),
+        followUpDate: followUpDate ? followUpDate.trim() : undefined,
+        createdAt: new Date().toISOString()
+      };
+
+      data.clinicalNotes.unshift(newNote);
+      db.save(data);
+
+      db.logAudit({
+        userId: user.id,
+        userName: user.name,
+        role: 'doctor',
+        action: 'CLINICAL_NOTE_CREATED',
+        recordId: newNote.id,
+        targetPatientId: patient.patientId,
+        details: `Dr. ${user.name} recorded clinical assessment and treatment plan for ${patient.name}`
+      });
+
+      res.status(201).json({ success: true, note: newNote });
+    } catch (err: any) {
+      console.error('Create clinical note error:', err);
+      res.status(500).json({ error: 'Failed to save clinical note.' });
+    }
+  });
+
+  // 12. Doctor Patient Management (Phases 6, 7 & 14)
+  app.get('/api/doctor/patients', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user || user.role !== 'doctor') {
+        return res.status(403).json({ error: 'Access restricted to authorized doctors.' });
+      }
+
+      const data = db.get();
+      const relationships = data.patientDoctorRelationships.filter(r => r.doctorUserId === user.id && r.status === 'active');
+
+      const patientList = relationships.map(rel => {
+        const patientUser = data.users.find(u => u.id === rel.patientUserId);
+        const reportCount = data.reports.filter(r => r.userId === rel.patientUserId).length;
+        const prescriptionCount = data.prescriptions.filter(p => p.patientUserId === rel.patientUserId).length;
+        const lastAppt = data.appointments.find(a => a.userId === rel.patientUserId || a.email.toLowerCase() === rel.patientEmail.toLowerCase());
+
+        return {
+          relationshipId: rel.id,
+          patientUserId: rel.patientUserId,
+          patientId: rel.patientId || patientUser?.patientId || 'PT-UNKNOWN',
+          name: rel.patientName,
+          email: rel.patientEmail,
+          phone: patientUser?.phone || '',
+          age: patientUser?.age,
+          gender: patientUser?.gender,
+          bloodGroup: patientUser?.bloodGroup,
+          allergies: patientUser?.allergies,
+          emergencyContact: patientUser?.emergencyContact,
+          reportCount,
+          prescriptionCount,
+          lastActivity: lastAppt ? lastAppt.appointmentDate : rel.createdAt
+        };
+      });
+
+      res.json({ patients: patientList });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to fetch patients list.' });
+    }
+  });
+
+  app.post('/api/doctor/patients/link', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user || user.role !== 'doctor') {
+        return res.status(403).json({ error: 'Access restricted to doctors.' });
+      }
+
+      const { patientSearch } = req.body;
+      if (!patientSearch || !patientSearch.trim()) {
+        return res.status(400).json({ error: 'Please enter a Patient ID (e.g. PT-123456) or Email address.' });
+      }
+
+      const query = patientSearch.trim().toLowerCase();
+      const data = db.get();
+
+      const patient = data.users.find(
+        u => u.role === 'patient' && (
+          (u.patientId && u.patientId.toLowerCase() === query) ||
+          u.email.toLowerCase() === query
+        )
+      );
+
+      if (!patient) {
+        return res.status(404).json({
+          error: `No registered patient found matching "${patientSearch}". Please confirm the Patient ID with the patient.`
+        });
+      }
+
+      const existingRel = data.patientDoctorRelationships.find(
+        r => r.doctorUserId === user.id && r.patientUserId === patient.id
+      );
+
+      if (existingRel) {
+        return res.status(400).json({ error: 'This patient is already linked to your doctor roster.' });
+      }
+
+      const newRel: PatientDoctorRelationship = {
+        id: `pdr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientUserId: patient.id,
+        patientId: patient.patientId || `PT-${Math.floor(100000 + Math.random() * 900000)}`,
+        patientName: patient.name,
+        patientEmail: patient.email,
+        doctorUserId: user.id,
+        doctorName: user.name,
+        status: 'active',
+        createdAt: new Date().toISOString()
+      };
+
+      data.patientDoctorRelationships.push(newRel);
+      db.save(data);
+
+      db.logAudit({
+        userId: user.id,
+        userName: user.name,
+        role: 'doctor',
+        action: 'PATIENT_RECORD_ACCESSED',
+        targetPatientId: patient.patientId,
+        details: `Dr. ${user.name} linked patient ${patient.name} (${patient.patientId}) to care roster`
+      });
+
+      res.status(201).json({ success: true, message: `Successfully linked patient ${patient.name}`, relationship: newRel });
+    } catch (err: any) {
+      console.error('Link patient error:', err);
+      res.status(500).json({ error: 'Failed to link patient.' });
+    }
+  });
+
+  app.get('/api/doctor/patients/:patientUserId/overview', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user || user.role !== 'doctor') {
+        return res.status(403).json({ error: 'Access restricted to authorized doctors.' });
+      }
+
+      const patientUserId = req.params.patientUserId;
+      const data = db.get();
+
+      const hasRel = data.patientDoctorRelationships.some(
+        r => r.doctorUserId === user.id && r.patientUserId === patientUserId
+      );
+
+      if (!hasRel) {
+        return res.status(403).json({ error: 'You are not authorized to view this patient chart.' });
+      }
+
+      const patientUser = data.users.find(u => u.id === patientUserId);
+      if (!patientUser) {
+        return res.status(404).json({ error: 'Patient user record not found.' });
+      }
+
+      const reports = data.reports.filter(r => r.userId === patientUserId);
+      const prescriptions = data.prescriptions.filter(p => p.patientUserId === patientUserId);
+      const clinicalNotes = data.clinicalNotes.filter(n => n.patientUserId === patientUserId);
+      const appointments = data.appointments.filter(a => a.userId === patientUserId || a.email.toLowerCase() === patientUser.email.toLowerCase());
+      const bmiRecords = data.bmiRecords.filter(b => b.userId === patientUserId);
+
+      db.logAudit({
+        userId: user.id,
+        userName: user.name,
+        role: 'doctor',
+        action: 'PATIENT_RECORD_ACCESSED',
+        targetPatientId: patientUser.patientId,
+        details: `Dr. ${user.name} accessed full comprehensive medical chart for patient ${patientUser.name}`
+      });
+
+      const { passwordHash: _, ...safePatient } = patientUser as any;
+
+      res.json({
+        patient: safePatient,
+        reports,
+        prescriptions,
+        clinicalNotes,
+        appointments,
+        bmiRecords
+      });
+    } catch (err: any) {
+      console.error('Patient overview error:', err);
+      res.status(500).json({ error: 'Failed to retrieve patient medical overview.' });
+    }
+  });
+
+  // Doctor Dashboard Stats
+  app.get('/api/doctor/stats', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user || user.role !== 'doctor') {
+        return res.status(403).json({ error: 'Access restricted.' });
+      }
+      const data = db.get();
+      const patientCount = data.patientDoctorRelationships.filter(r => r.doctorUserId === user.id && r.status === 'active').length;
+      const prescriptionCount = data.prescriptions.filter(p => p.doctorUserId === user.id).length;
+      const appointmentCount = data.appointments.filter(
+        a => (a.doctorUserId === user.id || a.doctorName.toLowerCase().includes(user.name.toLowerCase())) && a.status === 'Confirmed'
+      ).length;
+      const clinicalNoteCount = data.clinicalNotes.filter(n => n.doctorUserId === user.id).length;
+
+      res.json({
+        stats: {
+          totalPatients: patientCount,
+          totalPrescriptions: prescriptionCount,
+          activeAppointments: appointmentCount,
+          totalClinicalNotes: clinicalNoteCount
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to fetch stats.' });
+    }
+  });
+
+  // 13. Audit Logs Endpoint (Phase 13)
+  app.get('/api/audit-logs', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+      const data = db.get();
+
+      if (user.role === 'doctor') {
+        // Return audit logs related to this doctor or their patients
+        const docLogs = data.auditLogs.filter(
+          l => l.userId === user.id || (l.role === 'patient' && data.patientDoctorRelationships.some(r => r.doctorUserId === user.id && r.patientId === l.targetPatientId))
+        );
+        return res.json({ logs: docLogs.slice(0, 100) });
+      } else {
+        // Patient only gets audit events regarding their own record
+        const patientLogs = data.auditLogs.filter(
+          l => l.userId === user.id || l.targetPatientId === user.patientId
+        );
+        return res.json({ logs: patientLogs.slice(0, 50) });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to fetch audit logs.' });
+    }
+  });
+
+  // 14. Contact Form Endpoint
   app.post('/api/contact', (req: Request, res: Response) => {
     try {
       const { name, email, subject, phone, message } = req.body;

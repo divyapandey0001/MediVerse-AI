@@ -1,7 +1,21 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { User, Appointment, BmiRecord, LabReportAnalysis, ContactMessage, Doctor, Review, UserFeedback } from '../src/types.js';
+import {
+  User,
+  Appointment,
+  BmiRecord,
+  LabReportAnalysis,
+  ContactMessage,
+  Doctor,
+  Review,
+  UserFeedback,
+  Prescription,
+  ClinicalNote,
+  PatientDoctorRelationship,
+  AuditLog,
+  UserRole
+} from '../src/types.js';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
@@ -15,6 +29,10 @@ interface DatabaseSchema {
   doctors: Doctor[];
   reviews: Review[];
   feedbacks: UserFeedback[];
+  prescriptions: Prescription[];
+  clinicalNotes: ClinicalNote[];
+  patientDoctorRelationships: PatientDoctorRelationship[];
+  auditLogs: AuditLog[];
 }
 
 const DEFAULT_DOCTORS: Doctor[] = [
@@ -79,7 +97,11 @@ function initDb(): DatabaseSchema {
       contactMessages: [],
       doctors: DEFAULT_DOCTORS,
       reviews: [],
-      feedbacks: []
+      feedbacks: [],
+      prescriptions: [],
+      clinicalNotes: [],
+      patientDoctorRelationships: [],
+      auditLogs: []
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
     return initialData;
@@ -97,6 +119,18 @@ function initDb(): DatabaseSchema {
     if (!Array.isArray(parsed.feedbacks)) {
       parsed.feedbacks = [];
     }
+    if (!Array.isArray(parsed.prescriptions)) {
+      parsed.prescriptions = [];
+    }
+    if (!Array.isArray(parsed.clinicalNotes)) {
+      parsed.clinicalNotes = [];
+    }
+    if (!Array.isArray(parsed.patientDoctorRelationships)) {
+      parsed.patientDoctorRelationships = [];
+    }
+    if (!Array.isArray(parsed.auditLogs)) {
+      parsed.auditLogs = [];
+    }
     fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
     return parsed;
   } catch (err) {
@@ -109,7 +143,11 @@ function initDb(): DatabaseSchema {
       contactMessages: [],
       doctors: DEFAULT_DOCTORS,
       reviews: [],
-      feedbacks: []
+      feedbacks: [],
+      prescriptions: [],
+      clinicalNotes: [],
+      patientDoctorRelationships: [],
+      auditLogs: []
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
     return initialData;
@@ -148,5 +186,46 @@ export const db = {
     } catch {
       return null;
     }
+  },
+
+  generatePatientId(): string {
+    const randomDigits = Math.floor(100000 + Math.random() * 900000);
+    return `PT-${randomDigits}`;
+  },
+
+  generatePrescriptionNumber(): string {
+    const year = new Date().getFullYear();
+    const randomDigits = Math.floor(1000 + Math.random() * 9000);
+    return `RX-${year}-${randomDigits}`;
+  },
+
+  logAudit(entry: {
+    userId: string;
+    userName: string;
+    role: UserRole;
+    action: AuditLog['action'];
+    recordId?: string;
+    targetPatientId?: string;
+    details: string;
+  }) {
+    const data = this.get();
+    const newLog: AuditLog = {
+      id: `audit-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      userId: entry.userId,
+      userName: entry.userName,
+      role: entry.role,
+      action: entry.action,
+      recordId: entry.recordId,
+      targetPatientId: entry.targetPatientId,
+      details: entry.details,
+      timestamp: new Date().toISOString()
+    };
+    data.auditLogs.unshift(newLog);
+    // Keep max 2000 logs
+    if (data.auditLogs.length > 2000) {
+      data.auditLogs = data.auditLogs.slice(0, 2000);
+    }
+    this.save(data);
+    return newLog;
   }
 };

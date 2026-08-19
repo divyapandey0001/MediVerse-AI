@@ -1,6 +1,6 @@
 {
   "name": "MediVerse",
-  "description": "AI Powered Healthcare Platform - Real-time medical report analysis, symptom checker, medicine information, BMI calculation, and AI health assistance.",
+  "description": "AI Powered Healthcare Platform with secure Patient and Doctor Health Record System, lab report analysis, longitudinal comparisons, digital prescriptions, and clinical management.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

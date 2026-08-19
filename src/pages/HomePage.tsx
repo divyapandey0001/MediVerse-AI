@@ -27,16 +27,23 @@ import {
   Cpu,
   BookOpen,
   Apple,
-  Activity
+  Activity,
+  X,
+  UserPlus,
+  LogIn
 } from 'lucide-react';
 import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
 import { Review, FeedbackType } from '../types.js';
+import { useAuth } from '../context/AuthContext.js';
 
 interface HomePageProps {
   onNavigate: (page: string) => void;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
+  const { user } = useAuth();
+  const [showLoginRequiredModal, setShowLoginRequiredModal] = useState<boolean>(false);
+
   // Reviews state (real database fetch)
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loadingReviews, setLoadingReviews] = useState<boolean>(true);
@@ -279,8 +286,27 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       description: 'Request and manage appointments.',
       icon: Calendar,
       tag: 'Specialist Booking'
+    },
+    {
+      id: 'health-records',
+      title: 'My Health Records',
+      description: 'Access your centralized patient health record: reports archive, longitudinal comparisons, digital prescriptions, and health history.',
+      icon: HeartPulse,
+      tag: 'Protected Health Portal'
     }
   ];
+
+  const handleServiceCardClick = (cardId: string) => {
+    if (cardId === 'health-records') {
+      if (!user) {
+        setShowLoginRequiredModal(true);
+        return;
+      }
+      onNavigate(user.role === 'doctor' ? 'doctor-dashboard' : 'patient-dashboard');
+      return;
+    }
+    onNavigate(cardId);
+  };
 
   // 5 How MediVerse Works Steps
   const workflowSteps = [
@@ -472,10 +498,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                   <div className="pt-6 mt-4 border-t border-slate-100">
                     <button
                       id={`open-tool-btn-${card.id}`}
-                      onClick={() => onNavigate(card.id)}
+                      onClick={() => handleServiceCardClick(card.id)}
                       className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-sm shadow-md shadow-blue-600/20 hover:shadow-lg hover:shadow-blue-600/30 transition-all transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <span>Open Tool →</span>
+                      <span>{card.id === 'health-records' ? 'Access Records →' : 'Open Tool →'}</span>
                     </button>
                   </div>
                 </div>
@@ -1240,6 +1266,85 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           </div>
         </div>
       </section>
+
+      {/* Login Required Modal */}
+      {showLoginRequiredModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white text-slate-900 rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-200 animate-fadeIn space-y-6">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 leading-tight">Login Required</h3>
+                  <span className="text-xs text-blue-600 font-semibold uppercase tracking-wider">
+                    My Health Records
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowLoginRequiredModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-sm text-slate-600 leading-relaxed">
+              <p>
+                <strong>My Health Records</strong> is a secure, private health portal. Please log in or create an account to access:
+              </p>
+              <ul className="space-y-1.5 pl-2 text-xs text-slate-700">
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Lab Reports Archive & Parameter Analysis</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Side-by-Side Report Comparison & Deltas</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Digital Doctor Prescriptions & Regimens</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Health History, Timeline & Clinical Notes</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Scheduled Consultations & PDF Downloads</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center gap-3">
+              <button
+                onClick={() => {
+                  setShowLoginRequiredModal(false);
+                  onNavigate('login');
+                }}
+                className="w-full sm:flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm shadow-md shadow-blue-600/20 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>Log In</span>
+              </button>
+              <button
+                onClick={() => {
+                  setShowLoginRequiredModal(false);
+                  onNavigate('signup');
+                }}
+                className="w-full sm:flex-1 py-3 px-4 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Create Account</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
