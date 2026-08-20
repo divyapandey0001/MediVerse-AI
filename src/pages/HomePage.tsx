@@ -416,6 +416,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       tag: 'Specialist Booking'
     },
     {
+      id: 'live-records',
+      title: 'Live Patient Health Record & AI Summary',
+      description: 'Continuous digital patient records from admission onwards: progress notes, labs, meds, chronological timeline, and on-demand AI clinical synthesis.',
+      icon: Activity,
+      tag: 'Continuous Health Record'
+    },
+    {
       id: 'health-records',
       title: 'My Health Records',
       description: 'Access your centralized patient health record: reports archive, longitudinal comparisons, digital prescriptions, and health history.',

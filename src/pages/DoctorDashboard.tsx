@@ -353,7 +353,14 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate }) 
             </div>
 
             {/* Quick Actions */}
-            <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+              <button
+                onClick={() => onNavigate('live-records')}
+                className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold shadow-sm shadow-indigo-600/20 transition-all cursor-pointer"
+              >
+                <Activity className="w-4 h-4" />
+                <span>Live Health Records & AI Summary</span>
+              </button>
               <button
                 onClick={() => setShowLinkModal(true)}
                 className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-sm shadow-blue-600/20 transition-all cursor-pointer"

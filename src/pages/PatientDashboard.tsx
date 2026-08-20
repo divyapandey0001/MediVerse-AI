@@ -285,14 +285,21 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ onNavigate }
               </div>
             </div>
 
-            {/* Quick Export Summary Button */}
-            <div className="flex items-center gap-3 w-full sm:w-auto">
+            {/* Quick Actions */}
+            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+              <button
+                onClick={() => onNavigate('live-records')}
+                className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold shadow-sm shadow-indigo-600/20 transition-all cursor-pointer"
+              >
+                <Activity className="w-4 h-4" />
+                <span>Live Inpatient Record</span>
+              </button>
               <button
                 onClick={() =>
                   user &&
                   downloadHealthSummaryPDF(user, reports, prescriptions, clinicalNotes, bmiRecords)
                 }
-                className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-sm shadow-blue-600/20 transition-all cursor-pointer"
+                className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-sm shadow-blue-600/20 transition-all cursor-pointer"
               >
                 <Download className="w-4 h-4" />
                 <span>Download Health Summary (PDF)</span>

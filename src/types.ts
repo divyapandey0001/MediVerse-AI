@@ -284,3 +284,242 @@ export interface Doctor {
   experience: string;
   availableDays: string[];
 }
+
+// ==========================================
+// LIVE PATIENT HEALTH RECORD & TIMELINE TYPES
+// ==========================================
+
+export type PatientAdmissionStatus =
+  | 'Admitted'
+  | 'Under Observation'
+  | 'ICU Care'
+  | 'Pre-Op'
+  | 'Post-Op'
+  | 'Discharged'
+  | 'Transferred';
+
+export type SummaryStatus =
+  | 'Up to Date'
+  | 'Updated information available'
+  | 'Generating'
+  | 'Not Generated';
+
+export interface InitialVitals {
+  bloodPressure?: string;
+  heartRate?: string;
+  temperature?: string;
+  spO2?: string;
+  respiratoryRate?: string;
+}
+
+export interface LivePatientRecord {
+  id: string;
+  uhid: string; // Patient ID / UHID
+  patientName: string;
+  patientAge: number;
+  patientGender: string;
+  bloodGroup: string;
+  contactPhone: string;
+  allergies: string;
+  emergencyContact: string;
+  bedRoomNo: string;
+  admissionDateTime: string;
+  department: string;
+  attendingDoctor: string;
+  attendingDoctorUserId?: string;
+  reasonForAdmission: string;
+  initialVitals?: InitialVitals;
+  status: PatientAdmissionStatus;
+  dischargeDateTime?: string;
+  dischargeSummary?: string;
+  summaryStatus: SummaryStatus;
+  lastSummaryGeneratedAt?: string;
+  entriesCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TimelineEntryType =
+  | 'Doctor / Progress Note'
+  | 'Lab Result'
+  | 'Imaging / Radiology Report'
+  | 'Prescription'
+  | 'Medication Admin / Order'
+  | 'Procedure / Treatment'
+  | 'Nursing Note / Vitals'
+  | 'Consultation Note'
+  | 'Discharge Information'
+  | 'Document / Attachment';
+
+export interface StructuredLabItem {
+  testName: string;
+  result: string;
+  unit: string;
+  referenceRange?: string;
+  status?: 'Normal' | 'Low' | 'High' | 'Critical';
+}
+
+export interface StructuredMedicationItem {
+  name: string;
+  dose: string;
+  route: string;
+  frequency: string;
+  duration?: string;
+  action?: 'Started' | 'Modified' | 'Discontinued' | 'Continued';
+  instructions?: string;
+}
+export type MedicationOrderItem = StructuredMedicationItem;
+
+export interface StructuredVitals {
+  bp?: string;
+  pulse?: string;
+  temp?: string;
+  spo2?: string;
+  rr?: string;
+  painScore?: string;
+  bloodGlucose?: string;
+}
+export type VitalsData = StructuredVitals;
+
+export interface EntryAttachment {
+  name: string;
+  type: string;
+  url?: string;
+  dataUrl?: string;
+  size?: number;
+}
+
+export interface PatientTimelineEntry {
+  id: string;
+  patientRecordId: string;
+  uhid: string;
+  entryType: TimelineEntryType;
+  timestamp: string;
+  authorName: string;
+  authorRole: string;
+  title: string;
+  content: string;
+  structuredData?: {
+    tests?: StructuredLabItem[];
+    medications?: StructuredMedicationItem[];
+    vitals?: StructuredVitals;
+    imagingModality?: string;
+    bodyPart?: string;
+    impression?: string;
+    procedureName?: string;
+    performedBy?: string;
+    complications?: string;
+    outcome?: string;
+    consultingSpecialty?: string;
+    recommendations?: string;
+    dischargeCondition?: string;
+  };
+  attachments?: EntryAttachment[];
+  isCritical?: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ClinicalTimelineMilestone {
+  timeframe: string;
+  milestone: string;
+  sourceRecord: string;
+  sourceDate: string;
+}
+
+export interface InvestigationFinding {
+  finding: string;
+  category: 'Lab' | 'Imaging' | 'Biomarker' | 'Diagnostic';
+  status: 'Normal' | 'Abnormal' | 'Critical';
+  sourceRecord: string;
+  sourceDate: string;
+}
+
+export interface DocumentedDiagnosis {
+  diagnosis: string;
+  type: 'Primary' | 'Secondary' | 'Differential' | 'Provisional';
+  status: 'Active' | 'Resolved' | 'Under Investigation';
+  sourceRecord: string;
+}
+
+export interface CurrentTreatmentItem {
+  treatment: string;
+  details: string;
+  sourceRecord: string;
+}
+
+export interface CurrentMedicationItem {
+  name: string;
+  dosage: string;
+  frequency: string;
+  route: string;
+  status: 'Active' | 'Changed' | 'New';
+  sourceRecord: string;
+}
+
+export interface MedicationChangeItem {
+  medicine: string;
+  changeType: 'Initiated' | 'Dose Adjusted' | 'Discontinued' | 'Substituted';
+  reason?: string;
+  sourceRecord: string;
+  sourceDate: string;
+}
+
+export interface DocumentedStatus {
+  clinicalCondition: string;
+  vitalTrends: string;
+  sources: string[];
+}
+
+export interface PendingInvestigationItem {
+  investigation: string;
+  scheduledOrOrderedDate?: string;
+  sourceRecord: string;
+}
+
+export interface DocumentedAlertItem {
+  alert: string;
+  severity: 'High' | 'Medium' | 'Info';
+  sourceRecord: string;
+}
+
+export interface SecondOpinionBrief {
+  synthesis: string;
+  keyConsiderations: string[];
+  suggestedClinicalQuestions: string[];
+}
+
+export interface MissingOrConflictingInfo {
+  issueType: 'Missing Information' | 'Conflicting Records' | 'Documentation Gap';
+  description: string;
+  flaggedForHumanReview: boolean;
+  recordsInvolved?: string[];
+}
+
+export interface LivePatientAiSummary {
+  id: string;
+  patientRecordId: string;
+  uhid: string;
+  generatedAt: string;
+  reasonForAdmission: {
+    statement: string;
+    sources: string[];
+  };
+  relevantHistory: {
+    statement: string;
+    sources: string[];
+  };
+  clinicalTimeline: ClinicalTimelineMilestone[];
+  importantInvestigationFindings: InvestigationFinding[];
+  documentedDiagnoses: DocumentedDiagnosis[];
+  currentTreatment: CurrentTreatmentItem[];
+  currentMedications: CurrentMedicationItem[];
+  medicationChanges: MedicationChangeItem[];
+  currentDocumentedStatus: DocumentedStatus;
+  pendingInvestigations: PendingInvestigationItem[];
+  importantDocumentedAlerts: DocumentedAlertItem[];
+  secondOpinionBrief: SecondOpinionBrief;
+  missingOrConflictingInformation: MissingOrConflictingInfo[];
+  disclaimer: string;
+}
+

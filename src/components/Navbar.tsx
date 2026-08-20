@@ -11,7 +11,8 @@ import {
   Pill,
   Calculator,
   Calendar,
-  MessageSquare
+  MessageSquare,
+  HeartPulse
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.js';
 
@@ -79,6 +80,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
 
   const navItems = [
     { id: 'home', label: 'Home' },
+    { id: 'live-records', label: 'Live Health Record' },
     { id: 'services', label: 'Services' },
     { id: 'about', label: 'About' },
     { id: 'reviews', label: 'Reviews' },
@@ -86,6 +88,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
   ];
 
   const directTools = [
+    { id: 'live-records', label: 'Live Patient Health Record', icon: HeartPulse },
     { id: 'lab-report', label: 'AI Lab Report Analysis', icon: FileText },
     { id: 'symptom-checker', label: 'Symptom Checker', icon: Stethoscope },
     { id: 'medicine-info', label: 'Medicine Information', icon: Pill },

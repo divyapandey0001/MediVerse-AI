@@ -150,5 +150,8 @@
   "prescriptions": [],
   "clinicalNotes": [],
   "patientDoctorRelationships": [],
-  "auditLogs": []
+  "auditLogs": [],
+  "patientRecords": [],
+  "patientTimelineEntries": [],
+  "patientAiSummaries": []
 }

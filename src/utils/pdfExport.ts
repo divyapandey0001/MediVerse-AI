@@ -1,6 +1,16 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Prescription, LabReportAnalysis, ClinicalNote, User, BmiRecord, ReportComparisonResult } from '../types.js';
+import {
+  Prescription,
+  LabReportAnalysis,
+  ClinicalNote,
+  User,
+  BmiRecord,
+  ReportComparisonResult,
+  LivePatientRecord,
+  PatientTimelineEntry,
+  LivePatientAiSummary
+} from '../types.js';
 
 export function downloadPrescriptionPDF(prescription: Prescription): void {
   const doc = new jsPDF();
@@ -454,4 +464,171 @@ export function downloadReportComparisonPDF(comparison: ReportComparisonResult):
   );
 
   doc.save(`Lab_Comparison_${new Date().toISOString().split('T')[0]}.pdf`);
+}
+
+export function downloadLivePatientRecordPDF(
+  patient: LivePatientRecord,
+  entries: PatientTimelineEntry[],
+  summary: LivePatientAiSummary | null
+): void {
+  const doc = new jsPDF();
+
+  // Header Banner
+  doc.setFillColor(30, 64, 175); // Royal blue
+  doc.rect(0, 0, 210, 40, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.text('MediVerse Health — Continuous Inpatient Chart', 14, 18);
+
+  doc.setFontSize(9.5);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Live Electronic Medical Record (EMR) & Clinical Timeline', 14, 26);
+  doc.text(`UHID / Patient ID: ${patient.uhid}`, 130, 18);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 130, 26);
+  doc.text(`Admission Status: ${patient.status.toUpperCase()}`, 130, 34);
+
+  // Demographics Grid
+  doc.setTextColor(30, 41, 59);
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.text('PATIENT DEMOGRAPHICS & ADMISSION DATA', 14, 50);
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Patient Name: ${patient.patientName}`, 14, 57);
+  doc.text(`Age / Gender: ${patient.patientAge} Years / ${patient.patientGender}`, 14, 63);
+  doc.text(`Blood Group: ${patient.bloodGroup || 'Not Specified'}`, 14, 69);
+  doc.text(`Documented Allergies: ${patient.allergies || 'No Known Drug Allergies (NKDA)'}`, 14, 75);
+
+  doc.text(`Department: ${patient.department}`, 115, 57);
+  doc.text(`Attending Doctor: ${patient.attendingDoctor}`, 115, 63);
+  doc.text(`Bed / Ward: ${patient.bedRoomNo || 'General Inpatient'}`, 115, 69);
+  doc.text(`Admission Date: ${new Date(patient.admissionDateTime).toLocaleString()}`, 115, 75);
+
+  // Reason for admission
+  doc.setFillColor(241, 245, 249);
+  doc.roundedRect(14, 80, 182, 14, 2, 2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(30, 64, 175);
+  doc.text('REASON FOR ADMISSION:', 18, 88);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(15, 23, 42);
+  const reasonLines = doc.splitTextToSize(patient.reasonForAdmission, 125);
+  doc.text(reasonLines, 70, 88);
+
+  let currentY = 102;
+
+  // AI Current Summary Section if available
+  if (summary) {
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 64, 175);
+    doc.text('AI CURRENT CLINICAL SYNTHESIS', 14, currentY);
+    currentY += 6;
+
+    // Diagnoses & Status Box
+    const diagnosesText = (summary.documentedDiagnoses || []).map(d => `${d.diagnosis} (${d.type} - ${d.status})`).join(', ') || 'Under clinical evaluation';
+    const medsText = (summary.currentMedications || []).map(m => `${m.name} ${m.dosage} (${m.frequency})`).join(', ') || 'None documented';
+
+    const briefSynthesis = summary.secondOpinionBrief?.synthesis
+      ? summary.secondOpinionBrief.synthesis
+      : typeof summary.reasonForAdmission === 'string'
+      ? summary.reasonForAdmission
+      : summary.reasonForAdmission?.statement || 'Clinical evaluation ongoing.';
+
+    const summaryTable: string[][] = [
+      ['Documented Diagnoses', diagnosesText],
+      ['Active Medications', medsText],
+      ['Vital Trends & Status', `${summary.currentDocumentedStatus?.clinicalCondition || 'Stable'} — ${summary.currentDocumentedStatus?.vitalTrends || 'Monitoring ongoing'}`],
+      ['Clinical Brief / Synthesis', briefSynthesis]
+    ];
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [['Category', 'Synthesized Clinical Information']],
+      body: summaryTable,
+      theme: 'grid',
+      headStyles: { fillColor: [30, 64, 175], fontSize: 8.5, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 8, textColor: [30, 41, 59] },
+      columnStyles: {
+        0: { cellWidth: 50, fontStyle: 'bold' },
+        1: { cellWidth: 132 }
+      }
+    });
+
+    currentY = (doc as any).lastAutoTable.finalY + 10;
+  }
+
+  // Check if we need new page for timeline
+  if (currentY > 220) {
+    doc.addPage();
+    currentY = 20;
+  }
+
+  // Chronological Timeline Entries Table
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(30, 41, 59);
+  doc.text(`CHRONOLOGICAL CLINICAL TIMELINE (${entries.length} RECORDS)`, 14, currentY);
+  currentY += 6;
+
+  const timelineRows = entries.map((entry, idx) => {
+    const timeStr = new Date(entry.timestamp).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    return [
+      (idx + 1).toString(),
+      timeStr,
+      entry.entryType,
+      entry.title,
+      entry.content.length > 100 ? `${entry.content.substring(0, 97)}...` : entry.content,
+      `${entry.authorName} (${entry.authorRole})`
+    ];
+  });
+
+  autoTable(doc, {
+    startY: currentY,
+    head: [['#', 'Date & Time', 'Entry Type', 'Clinical Title', 'Notes & Impression', 'Staff / Author']],
+    body: timelineRows.length > 0 ? timelineRows : [['-', '-', '-', 'No timeline entries recorded yet', '-', '-']],
+    theme: 'striped',
+    headStyles: { fillColor: [51, 65, 85], fontSize: 8, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 7.5, textColor: [30, 41, 59] },
+    columnStyles: {
+      0: { cellWidth: 8 },
+      1: { cellWidth: 26 },
+      2: { cellWidth: 32 },
+      3: { cellWidth: 40 },
+      4: { cellWidth: 46 },
+      5: { cellWidth: 30 }
+    }
+  });
+
+  const finalY = (doc as any).lastAutoTable.finalY + 12;
+
+  // Add footer disclaimer
+  if (finalY > 270) {
+    doc.addPage();
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text(
+      'Medical Disclaimer: Live Patient Health Records are generated for clinical documentation and decision support. Final care decisions remain with qualified hospital staff.',
+      14,
+      285
+    );
+  } else {
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text(
+      'Medical Disclaimer: Live Patient Health Records are generated for clinical documentation and decision support. Final care decisions remain with qualified hospital staff.',
+      14,
+      285
+    );
+  }
+
+  doc.save(`Patient_Record_${patient.uhid}_${new Date().toISOString().split('T')[0]}.pdf`);
 }
