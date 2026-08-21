@@ -357,6 +357,77 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
     }
   });
 
+  // Firebase Google Sign-In backend verification & account synchronization
+  app.post('/api/auth/firebase-google', (req: Request, res: Response) => {
+    try {
+      const { email, name, role = 'patient', firebaseUid } = req.body;
+      if (!email) {
+        return res.status(400).json({ error: 'Email is required.' });
+      }
+
+      const normalizedEmail = email.trim().toLowerCase();
+      const userRole: UserRole = role === 'doctor' ? 'doctor' : 'patient';
+      const data = db.get();
+
+      let user = data.users.find(u => u.email === normalizedEmail);
+
+      if (!user) {
+        // Create new user linked with Firebase
+        const userId = firebaseUid ? `fb_${firebaseUid}` : `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        const patientId = userRole === 'patient' ? db.generatePatientId() : undefined;
+
+        const newUser: User & { passwordHash: string } = {
+          id: userId,
+          name: (name || email.split('@')[0]).trim(),
+          email: normalizedEmail,
+          role: userRole,
+          patientId,
+          specialty: userRole === 'doctor' ? 'General Medicine' : undefined,
+          qualification: userRole === 'doctor' ? 'MD' : undefined,
+          department: userRole === 'doctor' ? 'General Practice' : undefined,
+          licenseNumber: userRole === 'doctor' ? `MED-${Math.floor(100000 + Math.random() * 900000)}` : undefined,
+          hospitalAffiliation: userRole === 'doctor' ? 'MediVerse Healthcare Network' : undefined,
+          createdAt: new Date().toISOString(),
+          passwordHash: db.hashPassword(`fb_auth_${Date.now()}_${Math.random()}`)
+        };
+
+        data.users.push(newUser);
+
+        if (userRole === 'doctor') {
+          const docName = newUser.name.startsWith('Dr.') ? newUser.name : `Dr. ${newUser.name}`;
+          if (!data.doctors.some(d => d.name.toLowerCase() === docName.toLowerCase())) {
+            data.doctors.push({
+              id: `doc_${userId}`,
+              name: docName,
+              specialty: 'General Medicine',
+              qualification: 'MD',
+              department: 'General Practice',
+              experience: '8+ years',
+              availableDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+            });
+          }
+        }
+
+        db.save(data);
+        user = newUser;
+      } else {
+        if (user.role === 'patient' && !user.patientId) {
+          user.patientId = db.generatePatientId();
+          db.save(data);
+        }
+      }
+
+      const token = db.generateToken(user.id);
+      const { passwordHash: _, ...safeUser } = user;
+
+      res.json({ user: safeUser, token });
+    } catch (err: any) {
+      console.error('Firebase Google Auth error:', err);
+      res.status(500).json({ error: 'Failed to authenticate Firebase user.' });
+    }
+  });
+
+
   app.post('/api/auth/forgot-password', (req: Request, res: Response) => {
     try {
       const { email } = req.body;

@@ -1,0 +1,19 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Patient medical records and reports: strictly private to user
+    match /medical-records/{userId}/{allPaths=**} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Default deny for unauthenticated or other arbitrary paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,5 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, LabReportAnalysis } from '../types.js';
+import {
+  signInWithGoogle,
+  logoutFirebase,
+  syncUserProfileToFirestore,
+  auth,
+  isFirebaseInitialized,
+  firebaseConfig
+} from '../lib/firebase.js';
 
 interface SignupParams {
   name: string;
@@ -25,8 +33,11 @@ interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   activeReport: LabReportAnalysis | null;
+  firebaseConnected: boolean;
+  firebaseProjectId: string;
   setActiveReport: (report: LabReportAnalysis | null) => void;
   login: (email: string, password: string) => Promise<{ success: boolean; user?: User; error?: string }>;
+  loginWithGoogle: (role?: 'patient' | 'doctor') => Promise<{ success: boolean; user?: User; error?: string }>;
   signup: (params: SignupParams) => Promise<{ success: boolean; user?: User; error?: string }>;
   logout: () => void;
   updateProfile: (profileData: Partial<User>) => Promise<{ success: boolean; error?: string }>;
@@ -72,6 +83,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
+        if (data.user?.id) {
+          syncUserProfileToFirestore(data.user.id, data.user).catch(() => {});
+        }
       } else {
         localStorage.removeItem('mediverse_token');
         setToken(null);
@@ -102,9 +116,55 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.setItem('mediverse_token', data.token);
       setToken(data.token);
       setUser(data.user);
+      if (data.user?.id) {
+        syncUserProfileToFirestore(data.user.id, data.user).catch(() => {});
+      }
       return { success: true, user: data.user };
     } catch (err: any) {
       return { success: false, error: 'Network error during login.' };
+    }
+  };
+
+  const loginWithGoogle = async (role: 'patient' | 'doctor' = 'patient') => {
+    try {
+      setIsLoading(true);
+      const fbUser = await signInWithGoogle();
+      if (!fbUser || !fbUser.email) {
+        setIsLoading(false);
+        return { success: false, error: 'Google sign-in was cancelled or returned no email.' };
+      }
+
+      // Exchange / register Firebase Google user with MediVerse backend
+      const res = await fetch('/api/auth/firebase-google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: fbUser.email,
+          name: fbUser.displayName || fbUser.email.split('@')[0],
+          photoUrl: fbUser.photoURL,
+          firebaseUid: fbUser.uid,
+          role
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setIsLoading(false);
+        return { success: false, error: data.error || 'Failed to authenticate Google user.' };
+      }
+
+      localStorage.setItem('mediverse_token', data.token);
+      setToken(data.token);
+      setUser(data.user);
+      if (data.user?.id) {
+        syncUserProfileToFirestore(data.user.id, data.user).catch(() => {});
+      }
+      setIsLoading(false);
+      return { success: true, user: data.user };
+    } catch (err: any) {
+      setIsLoading(false);
+      console.error('Google Sign-In Error:', err);
+      return { success: false, error: err.message || 'Google sign-in error.' };
     }
   };
 
@@ -122,6 +182,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.setItem('mediverse_token', data.token);
       setToken(data.token);
       setUser(data.user);
+      if (data.user?.id) {
+        syncUserProfileToFirestore(data.user.id, data.user).catch(() => {});
+      }
       return { success: true, user: data.user };
     } catch (err: any) {
       return { success: false, error: 'Network error during signup.' };
@@ -129,6 +192,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const logout = () => {
+    logoutFirebase().catch(() => {});
     localStorage.removeItem('mediverse_token');
     setToken(null);
     setUser(null);
@@ -150,6 +214,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return { success: false, error: data.error || 'Update failed' };
       }
       setUser(data.user);
+      if (data.user?.id) {
+        syncUserProfileToFirestore(data.user.id, data.user).catch(() => {});
+      }
       return { success: true };
     } catch (err: any) {
       return { success: false, error: 'Network error updating profile.' };
@@ -163,8 +230,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         token,
         isLoading,
         activeReport,
+        firebaseConnected: isFirebaseInitialized,
+        firebaseProjectId: firebaseConfig.projectId,
         setActiveReport,
         login,
+        loginWithGoogle,
         signup,
         logout,
         updateProfile,
@@ -183,3 +253,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

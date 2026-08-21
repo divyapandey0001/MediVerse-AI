@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // User profiles: Only the authenticated user can read & update their profile
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+      
+      // Patient's lab reports & health records subcollection
+      match /reports/{reportId} {
+        allow read, write: if isOwner(userId);
+      }
+      
+      // Patient's prescriptions
+      match /prescriptions/{prescriptionId} {
+        allow read: if isOwner(userId);
+        allow write: if isAuthenticated();
+      }
+      
+      // Patient's BMI history
+      match /bmi/{bmiId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Doctors collection: Publicly readable for directory, editable only by verified doctor
+    match /doctors/{doctorId} {
+      allow read: if true;
+      allow write: if isAuthenticated() && request.auth.uid == doctorId;
+    }
+
+    // Public Patient Reviews & Feedback
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // Appointments: Only participant patient or doctor can read & update
+    match /appointments/{appointmentId} {
+      allow read, write: if isAuthenticated() && (
+        resource == null ||
+        resource.data.patientUserId == request.auth.uid ||
+        resource.data.doctorUserId == request.auth.uid ||
+        request.resource.data.patientUserId == request.auth.uid
+      );
+    }
+  }
+}

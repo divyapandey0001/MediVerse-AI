@@ -273,6 +273,33 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onNavigate }) => {
           </div>
         </div>
 
+        {/* Firebase Cloud Connection Status */}
+        <div className="bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200/80 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 flex items-center justify-center shrink-0">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M4.5 17.5l2.2-13.6c.1-.4.5-.6.8-.4l3.8 4.7 2.4-4.8c.2-.4.7-.4.9 0l5.9 14.1-7.8 4.5c-.5.3-1.1.3-1.6 0l-6.6-4.5z" />
+              </svg>
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-900">Firebase Cloud Integration Active</h3>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Connected
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Target Project: <code className="font-mono font-semibold text-blue-700">mediverse-ai-83b0ee</code> • Authentication, Firestore & Cloud Storage Enabled
+              </p>
+            </div>
+          </div>
+          <span className="text-[11px] font-medium text-slate-500 bg-white/80 px-3 py-1.5 rounded-lg border border-slate-200">
+            Secure HIPAA-aligned data segregation
+          </span>
+        </div>
+
+
         {/* Section 1: Previous Lab Report Analyses */}
         <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">

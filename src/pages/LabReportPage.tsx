@@ -22,6 +22,8 @@ import {
 import { LabReportAnalysis, TestStatus } from '../types.js';
 import { useAuth } from '../context/AuthContext.js';
 import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
+import { saveReportToFirestore, uploadMedicalDocument } from '../lib/firebase.js';
+
 
 interface LabReportPageProps {
   onNavigate: (page: string) => void;
@@ -138,7 +140,16 @@ export const LabReportPage: React.FC<LabReportPageProps> = ({ onNavigate }) => {
       setAnalysisStep('Finalizing plain-language health summary...');
       setReportResult(data.analysis);
       setActiveReport(data.analysis);
+
+      // Async Firestore & Firebase Storage synchronization
+      if (user?.id && data.analysis) {
+        saveReportToFirestore(user.id, data.analysis).catch(() => {});
+        if (selectedFile) {
+          uploadMedicalDocument(user.id, selectedFile, selectedFile.name).catch(() => {});
+        }
+      }
     } catch (err: any) {
+
       console.error('Analysis error:', err);
       setErrorMessage(
         err.message ||
