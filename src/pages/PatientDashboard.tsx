@@ -27,7 +27,8 @@ import {
   RefreshCw,
   Heart,
   CalendarDays,
-  FileCheck
+  FileCheck,
+  HeartPulse
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.js';
 import { LabReportAnalysis, Prescription, ClinicalNote, Appointment, BmiRecord, AuditLog, ReportComparisonResult } from '../types.js';
@@ -288,11 +289,11 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ onNavigate }
             {/* Quick Actions */}
             <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
               <button
-                onClick={() => onNavigate('live-records')}
-                className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold shadow-sm shadow-indigo-600/20 transition-all cursor-pointer"
+                onClick={() => onNavigate('live-patient-record')}
+                className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-sm font-semibold shadow-sm shadow-emerald-600/20 transition-all cursor-pointer"
               >
-                <Activity className="w-4 h-4" />
-                <span>Live Inpatient Record</span>
+                <HeartPulse className="w-4 h-4" />
+                <span>Live Patient Health Record</span>
               </button>
               <button
                 onClick={() =>

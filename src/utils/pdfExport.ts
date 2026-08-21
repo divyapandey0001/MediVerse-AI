@@ -8,8 +8,8 @@ import {
   BmiRecord,
   ReportComparisonResult,
   LivePatientRecord,
-  PatientTimelineEntry,
-  LivePatientAiSummary
+  PatientDischargeSummary,
+  PatientAiSummary
 } from '../types.js';
 
 export function downloadPrescriptionPDF(prescription: Prescription): void {
@@ -466,169 +466,304 @@ export function downloadReportComparisonPDF(comparison: ReportComparisonResult):
   doc.save(`Lab_Comparison_${new Date().toISOString().split('T')[0]}.pdf`);
 }
 
-export function downloadLivePatientRecordPDF(
-  patient: LivePatientRecord,
-  entries: PatientTimelineEntry[],
-  summary: LivePatientAiSummary | null
-): void {
+// 5. Download Official Hospital Discharge Summary PDF
+export function downloadPatientDischargeSummaryPDF(patient: LivePatientRecord, discharge: PatientDischargeSummary): void {
   const doc = new jsPDF();
 
   // Header Banner
-  doc.setFillColor(30, 64, 175); // Royal blue
+  doc.setFillColor(15, 23, 42); // Deep slate/blue
   doc.rect(0, 0, 210, 40, 'F');
 
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(18);
+  doc.setFontSize(20);
   doc.setFont('helvetica', 'bold');
-  doc.text('MediVerse Health — Continuous Inpatient Chart', 14, 18);
+  doc.text('MEDIVERSE HEALTHCARE SYSTEM', 14, 18);
 
-  doc.setFontSize(9.5);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Live Electronic Medical Record (EMR) & Clinical Timeline', 14, 26);
-  doc.text(`UHID / Patient ID: ${patient.uhid}`, 130, 18);
-  doc.text(`Generated: ${new Date().toLocaleString()}`, 130, 26);
-  doc.text(`Admission Status: ${patient.status.toUpperCase()}`, 130, 34);
-
-  // Demographics Grid
-  doc.setTextColor(30, 41, 59);
   doc.setFontSize(11);
+  doc.setFont('helvetica', 'normal');
+  doc.text('OFFICIAL HOSPITAL DISCHARGE SUMMARY', 14, 26);
+  doc.setFontSize(9);
+  doc.text(`UHID: ${patient.uhid}`, 140, 18);
+  doc.text(`Discharge Date: ${new Date(discharge.dischargeDate).toLocaleDateString()}`, 140, 26);
+  doc.text(`Summary ID: ${discharge.id}`, 140, 34);
+
+  // Patient Demographic Details Card
+  doc.setFillColor(241, 245, 249);
+  doc.roundedRect(14, 46, 182, 30, 2, 2, 'F');
+
+  doc.setTextColor(30, 41, 59);
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
-  doc.text('PATIENT DEMOGRAPHICS & ADMISSION DATA', 14, 50);
+  doc.text('PATIENT DEMOGRAPHICS & HOSPITALIZATION', 18, 54);
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Patient Name: ${patient.patientName}`, 14, 57);
-  doc.text(`Age / Gender: ${patient.patientAge} Years / ${patient.patientGender}`, 14, 63);
-  doc.text(`Blood Group: ${patient.bloodGroup || 'Not Specified'}`, 14, 69);
-  doc.text(`Documented Allergies: ${patient.allergies || 'No Known Drug Allergies (NKDA)'}`, 14, 75);
+  doc.text(`Patient Name: ${patient.patientName}`, 18, 61);
+  doc.text(`Age / Gender: ${patient.age || '—'} Y / ${patient.gender || '—'}`, 18, 67);
+  doc.text(`Blood Group: ${patient.bloodGroup || '—'}`, 18, 73);
 
-  doc.text(`Department: ${patient.department}`, 115, 57);
-  doc.text(`Attending Doctor: ${patient.attendingDoctor}`, 115, 63);
-  doc.text(`Bed / Ward: ${patient.bedRoomNo || 'General Inpatient'}`, 115, 69);
-  doc.text(`Admission Date: ${new Date(patient.admissionDateTime).toLocaleString()}`, 115, 75);
+  doc.text(`Department: ${patient.department}`, 110, 61);
+  doc.text(`Attending Physician: ${patient.attendingPhysician}`, 110, 67);
+  doc.text(`Admission Date: ${new Date(discharge.admissionDate).toLocaleDateString()}`, 110, 73);
 
-  // Reason for admission
-  doc.setFillColor(241, 245, 249);
-  doc.roundedRect(14, 80, 182, 14, 2, 2, 'F');
+  let currentY = 82;
+
+  // Final Diagnosis
+  doc.setFillColor(238, 242, 255);
+  doc.roundedRect(14, currentY, 182, 16, 2, 2, 'F');
   doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
   doc.setTextColor(30, 64, 175);
-  doc.text('REASON FOR ADMISSION:', 18, 88);
+  doc.text('FINAL CLINICAL DIAGNOSIS:', 18, currentY + 7);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(15, 23, 42);
-  const reasonLines = doc.splitTextToSize(patient.reasonForAdmission, 125);
-  doc.text(reasonLines, 70, 88);
+  doc.text(discharge.finalDiagnosis || 'Clinical Recovery', 18, currentY + 13);
+  currentY += 22;
 
-  let currentY = 102;
+  // Condition at Discharge
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(30, 41, 59);
+  doc.text('CONDITION AT DISCHARGE:', 14, currentY);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(51, 65, 85);
+  const condLines = doc.splitTextToSize(discharge.conditionAtDischarge, 182);
+  doc.text(condLines, 14, currentY + 6);
+  currentY += condLines.length * 5 + 8;
 
-  // AI Current Summary Section if available
-  if (summary) {
-    doc.setFontSize(11);
+  // Hospital Course Summary
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(30, 41, 59);
+  doc.text('HOSPITAL COURSE & CLINICAL SUMMARY:', 14, currentY);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(51, 65, 85);
+  const courseLines = doc.splitTextToSize(discharge.hospitalCourseSummary, 182);
+  doc.text(courseLines, 14, currentY + 6);
+  currentY += courseLines.length * 4.5 + 8;
+
+  // Discharge Medications Table
+  if (discharge.dischargeMedications && discharge.dischargeMedications.length > 0) {
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 64, 175);
-    doc.text('AI CURRENT CLINICAL SYNTHESIS', 14, currentY);
-    currentY += 6;
+    doc.setFontSize(9.5);
+    doc.setTextColor(30, 41, 59);
+    doc.text('DISCHARGE MEDICATIONS & PRESCRIPTION:', 14, currentY);
+    currentY += 4;
 
-    // Diagnoses & Status Box
-    const diagnosesText = (summary.documentedDiagnoses || []).map(d => `${d.diagnosis} (${d.type} - ${d.status})`).join(', ') || 'Under clinical evaluation';
-    const medsText = (summary.currentMedications || []).map(m => `${m.name} ${m.dosage} (${m.frequency})`).join(', ') || 'None documented';
-
-    const briefSynthesis = summary.secondOpinionBrief?.synthesis
-      ? summary.secondOpinionBrief.synthesis
-      : typeof summary.reasonForAdmission === 'string'
-      ? summary.reasonForAdmission
-      : summary.reasonForAdmission?.statement || 'Clinical evaluation ongoing.';
-
-    const summaryTable: string[][] = [
-      ['Documented Diagnoses', diagnosesText],
-      ['Active Medications', medsText],
-      ['Vital Trends & Status', `${summary.currentDocumentedStatus?.clinicalCondition || 'Stable'} — ${summary.currentDocumentedStatus?.vitalTrends || 'Monitoring ongoing'}`],
-      ['Clinical Brief / Synthesis', briefSynthesis]
-    ];
-
+    const medData = discharge.dischargeMedications.map((m, i) => [(i + 1).toString(), m]);
     autoTable(doc, {
       startY: currentY,
-      head: [['Category', 'Synthesized Clinical Information']],
-      body: summaryTable,
+      head: [['#', 'Medication Regimen, Dosage & Administration Instructions']],
+      body: medData,
       theme: 'grid',
       headStyles: { fillColor: [30, 64, 175], fontSize: 8.5, fontStyle: 'bold' },
       bodyStyles: { fontSize: 8, textColor: [30, 41, 59] },
-      columnStyles: {
-        0: { cellWidth: 50, fontStyle: 'bold' },
-        1: { cellWidth: 132 }
-      }
+      margin: { left: 14, right: 14 }
     });
 
-    currentY = (doc as any).lastAutoTable.finalY + 10;
+    currentY = (doc as any).lastAutoTable.finalY + 8;
   }
 
-  // Check if we need new page for timeline
+  // Check if we need new page for instructions
   if (currentY > 220) {
     doc.addPage();
     currentY = 20;
   }
 
-  // Chronological Timeline Entries Table
-  doc.setFontSize(11);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 41, 59);
-  doc.text(`CHRONOLOGICAL CLINICAL TIMELINE (${entries.length} RECORDS)`, 14, currentY);
-  currentY += 6;
-
-  const timelineRows = entries.map((entry, idx) => {
-    const timeStr = new Date(entry.timestamp).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-    return [
-      (idx + 1).toString(),
-      timeStr,
-      entry.entryType,
-      entry.title,
-      entry.content.length > 100 ? `${entry.content.substring(0, 97)}...` : entry.content,
-      `${entry.authorName} (${entry.authorRole})`
-    ];
-  });
-
-  autoTable(doc, {
-    startY: currentY,
-    head: [['#', 'Date & Time', 'Entry Type', 'Clinical Title', 'Notes & Impression', 'Staff / Author']],
-    body: timelineRows.length > 0 ? timelineRows : [['-', '-', '-', 'No timeline entries recorded yet', '-', '-']],
-    theme: 'striped',
-    headStyles: { fillColor: [51, 65, 85], fontSize: 8, fontStyle: 'bold' },
-    bodyStyles: { fontSize: 7.5, textColor: [30, 41, 59] },
-    columnStyles: {
-      0: { cellWidth: 8 },
-      1: { cellWidth: 26 },
-      2: { cellWidth: 32 },
-      3: { cellWidth: 40 },
-      4: { cellWidth: 46 },
-      5: { cellWidth: 30 }
-    }
-  });
-
-  const finalY = (doc as any).lastAutoTable.finalY + 12;
-
-  // Add footer disclaimer
-  if (finalY > 270) {
-    doc.addPage();
-    doc.setFontSize(7.5);
-    doc.setTextColor(148, 163, 184);
-    doc.text(
-      'Medical Disclaimer: Live Patient Health Records are generated for clinical documentation and decision support. Final care decisions remain with qualified hospital staff.',
-      14,
-      285
-    );
-  } else {
-    doc.setFontSize(7.5);
-    doc.setTextColor(148, 163, 184);
-    doc.text(
-      'Medical Disclaimer: Live Patient Health Records are generated for clinical documentation and decision support. Final care decisions remain with qualified hospital staff.',
-      14,
-      285
-    );
+  // Diet & Activity Advice
+  if (discharge.dietAndActivityAdvice) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
+    doc.text('DIETARY & ACTIVITY GUIDELINES:', 14, currentY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(51, 65, 85);
+    const dietLines = doc.splitTextToSize(discharge.dietAndActivityAdvice, 182);
+    doc.text(dietLines, 14, currentY + 5);
+    currentY += dietLines.length * 4.5 + 6;
   }
 
-  doc.save(`Patient_Record_${patient.uhid}_${new Date().toISOString().split('T')[0]}.pdf`);
+  // Follow-up Instructions
+  if (discharge.followUpInstructions) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
+    doc.text('FOLLOW-UP CONSULTATION PLAN:', 14, currentY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(51, 65, 85);
+    const fuLines = doc.splitTextToSize(discharge.followUpInstructions, 182);
+    doc.text(fuLines, 14, currentY + 5);
+    currentY += fuLines.length * 4.5 + 6;
+  }
+
+  // Emergency Warning Signs
+  if (discharge.emergencyWarningSigns && discharge.emergencyWarningSigns.length > 0) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(185, 28, 28); // Red
+    doc.text('RED-FLAG WARNING SIGNS (SEEK IMMEDIATE EMERGENCY CARE):', 14, currentY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(127, 29, 29);
+    discharge.emergencyWarningSigns.forEach(sign => {
+      doc.text(`• ${sign}`, 18, currentY + 5);
+      currentY += 4.5;
+    });
+    currentY += 4;
+  }
+
+  // Physician Sign-off block
+  currentY = Math.max(currentY + 6, 250);
+  if (currentY > 265) {
+    doc.addPage();
+    currentY = 240;
+  }
+  doc.setDrawColor(203, 213, 225);
+  doc.line(130, currentY, 196, currentY);
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(30, 41, 59);
+  doc.text(discharge.dischargedBy || patient.attendingPhysician, 130, currentY + 5);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Department of ${patient.department}`, 130, currentY + 9);
+  doc.text('Authorized Medical Officer Signature', 130, currentY + 13);
+
+  doc.save(`Discharge_Summary_${patient.uhid}_${patient.patientName.replace(/\s+/g, '_')}.pdf`);
 }
+
+// 6. Download Synthesized Clinical Medical Summary PDF
+export function downloadPatientMedicalSummaryPDF(patient: LivePatientRecord, summary: PatientAiSummary): void {
+  const doc = new jsPDF();
+
+  // Header Banner
+  doc.setFillColor(30, 58, 138); // Blue
+  doc.rect(0, 0, 210, 38, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.text('MediVerse Health — Synthesized Clinical Summary', 14, 18);
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`UHID: ${patient.uhid} | Patient: ${patient.patientName} (${patient.age || '—'}y, ${patient.gender || '—'})`, 14, 26);
+  doc.text(`Generated: ${new Date(summary.generatedAt).toLocaleString()}`, 14, 32);
+
+  let y = 46;
+
+  // Overview / Key Findings
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 58, 138);
+  doc.text('EXECUTIVE CLINICAL OVERVIEW', 14, y);
+  y += 5;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(30, 41, 59);
+  const overviewLines = doc.splitTextToSize(summary.overview || summary.overallHealthStatus || '', 182);
+  doc.text(overviewLines, 14, y);
+  y += overviewLines.length * 4.5 + 6;
+
+  // Key Findings
+  if (summary.keyFindings) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(30, 41, 59);
+    doc.text('Key Clinical Findings:', 14, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    if (Array.isArray(summary.keyFindings)) {
+      summary.keyFindings.forEach(kf => {
+        doc.text(`• ${kf}`, 18, y);
+        y += 4.5;
+      });
+    } else {
+      const kfLines = doc.splitTextToSize(summary.keyFindings, 182);
+      doc.text(kfLines, 14, y);
+      y += kfLines.length * 4.5;
+    }
+    y += 4;
+  }
+
+  // Vitals & Lab Trends
+  if (summary.vitalTrends || summary.labFindingsSummary) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(30, 41, 59);
+    doc.text('Vitals Trajectory & Lab Findings:', 14, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    const labLines = doc.splitTextToSize(`${summary.vitalTrends ? `Vitals: ${summary.vitalTrends}\n` : ''}${summary.labFindingsSummary || ''}`, 182);
+    doc.text(labLines, 14, y);
+    y += labLines.length * 4.5 + 4;
+  }
+
+  // Active Treatment & Medication Efficacy
+  if (summary.activeTreatmentStatus) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(30, 41, 59);
+    doc.text('Active Treatment & Medication Efficacy:', 14, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    const txLines = doc.splitTextToSize(summary.activeTreatmentStatus, 182);
+    doc.text(txLines, 14, y);
+    y += txLines.length * 4.5 + 4;
+  }
+
+  // Clinical Recommendations
+  if (summary.clinicalRecommendations && summary.clinicalRecommendations.length > 0) {
+    if (y > 230) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(30, 64, 175);
+    doc.text('Clinical Care Recommendations:', 14, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(30, 41, 59);
+    summary.clinicalRecommendations.forEach(rec => {
+      doc.text(`• ${rec}`, 18, y);
+      y += 4.5;
+    });
+    y += 4;
+  }
+
+  // Critical Alerts / Red Flags
+  if (summary.criticalAlerts && summary.criticalAlerts.length > 0) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(220, 38, 38);
+    doc.text('Critical Alerts / Red Flags:', 14, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(153, 27, 27);
+    summary.criticalAlerts.forEach(ca => {
+      doc.text(`! ${ca}`, 18, y);
+      y += 4.5;
+    });
+    y += 4;
+  }
+
+  // Footer
+  doc.setFontSize(7.5);
+  doc.setTextColor(148, 163, 184);
+  doc.text('Grounding Verification: Synthesized exclusively from verified patient health records. No fictitious data.', 14, 285);
+
+  doc.save(`Medical_Summary_${patient.uhid}_${patient.patientName.replace(/\s+/g, '_')}.pdf`);
+}
+

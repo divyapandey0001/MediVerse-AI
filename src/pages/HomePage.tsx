@@ -416,11 +416,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       tag: 'Specialist Booking'
     },
     {
-      id: 'live-records',
-      title: 'Live Patient Health Record & AI Summary',
-      description: 'Continuous digital patient records from admission onwards: progress notes, labs, meds, chronological timeline, and on-demand AI clinical synthesis.',
-      icon: Activity,
-      tag: 'Continuous Health Record'
+      id: 'live-patient-record',
+      title: 'Live Patient Health Record',
+      description: 'Comprehensive clinical EHR for patient admission, medical document uploads & AI extraction, vitals & labs tracking, medications, diagnoses, medical summaries, and discharge certificates.',
+      icon: HeartPulse,
+      tag: 'Clinical EHR'
     },
     {
       id: 'health-records',
@@ -432,6 +432,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   ];
 
   const handleServiceCardClick = (cardId: string) => {
+    if (cardId === 'live-patient-record') {
+      onNavigate('live-patient-record');
+      return;
+    }
     if (cardId === 'health-records') {
       if (!user) {
         setShowLoginRequiredModal(true);

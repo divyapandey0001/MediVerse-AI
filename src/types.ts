@@ -23,7 +23,7 @@ export interface User {
   createdAt: string;
 }
 
-export type TestStatus = 'Normal' | 'Low' | 'High' | 'Needs Attention';
+export type TestStatus = 'Normal' | 'Low' | 'High' | 'Needs Attention' | 'Critical' | 'Abnormal';
 
 export interface LabTestItem {
   testName: string;
@@ -94,6 +94,7 @@ export interface Prescription {
   doctorQualification?: string;
   doctorLicense?: string;
   diagnosis: string;
+  symptoms?: string;
   medicines: PrescriptionMedicine[];
   instructions: string;
   additionalNotes?: string;
@@ -285,241 +286,232 @@ export interface Doctor {
   availableDays: string[];
 }
 
-// ==========================================
-// LIVE PATIENT HEALTH RECORD & TIMELINE TYPES
-// ==========================================
+export type PatientStatus = 'Admitted' | 'Observation' | 'ICU' | 'Under Treatment' | 'Discharged' | 'Outpatient';
 
-export type PatientAdmissionStatus =
-  | 'Admitted'
-  | 'Under Observation'
-  | 'ICU Care'
-  | 'Pre-Op'
-  | 'Post-Op'
-  | 'Discharged'
-  | 'Transferred';
-
-export type SummaryStatus =
-  | 'Up to Date'
-  | 'Updated information available'
-  | 'Generating'
-  | 'Not Generated';
-
-export interface InitialVitals {
-  bloodPressure?: string;
-  heartRate?: string;
-  temperature?: string;
-  spO2?: string;
-  respiratoryRate?: string;
-}
-
-export interface LivePatientRecord {
+export interface PatientVitalEntry {
   id: string;
-  uhid: string; // Patient ID / UHID
-  patientName: string;
-  patientAge: number;
-  patientGender: string;
-  bloodGroup: string;
-  contactPhone: string;
-  allergies: string;
-  emergencyContact: string;
-  bedRoomNo: string;
-  admissionDateTime: string;
-  department: string;
-  attendingDoctor: string;
-  attendingDoctorUserId?: string;
-  reasonForAdmission: string;
-  initialVitals?: InitialVitals;
-  status: PatientAdmissionStatus;
-  dischargeDateTime?: string;
-  dischargeSummary?: string;
-  summaryStatus: SummaryStatus;
-  lastSummaryGeneratedAt?: string;
-  entriesCount: number;
-  createdAt: string;
-  updatedAt: string;
+  patientId: string;
+  recordedAt: string;
+  bloodPressure?: string;
+  heartRate?: number;
+  temperature?: number;
+  spo2?: number;
+  respiratoryRate?: number;
+  notes?: string;
+  recordedBy?: string;
 }
 
-export type TimelineEntryType =
-  | 'Doctor / Progress Note'
-  | 'Lab Result'
-  | 'Imaging / Radiology Report'
-  | 'Prescription'
-  | 'Medication Admin / Order'
-  | 'Procedure / Treatment'
-  | 'Nursing Note / Vitals'
-  | 'Consultation Note'
-  | 'Discharge Information'
-  | 'Document / Attachment';
-
-export interface StructuredLabItem {
+export interface PatientLabResult {
+  id: string;
+  patientId: string;
   testName: string;
   result: string;
   unit: string;
-  referenceRange?: string;
-  status?: 'Normal' | 'Low' | 'High' | 'Critical';
+  referenceRange: string;
+  status: TestStatus;
+  date: string;
+  sourceDocumentId?: string;
+  sourceDocumentName?: string;
+  documentName?: string;
+  recordedBy?: string;
 }
 
-export interface StructuredMedicationItem {
-  name: string;
-  dose: string;
+export interface PatientMedication {
+  id: string;
+  patientId: string;
+  medicineName: string;
+  strength: string;
   route: string;
   frequency: string;
-  duration?: string;
-  action?: 'Started' | 'Modified' | 'Discontinued' | 'Continued';
+  duration: string;
+  startDate?: string;
+  endDate?: string;
   instructions?: string;
-}
-export type MedicationOrderItem = StructuredMedicationItem;
-
-export interface StructuredVitals {
-  bp?: string;
-  pulse?: string;
-  temp?: string;
-  spo2?: string;
-  rr?: string;
-  painScore?: string;
-  bloodGlucose?: string;
-}
-export type VitalsData = StructuredVitals;
-
-export interface EntryAttachment {
-  name: string;
-  type: string;
-  url?: string;
-  dataUrl?: string;
-  size?: number;
+  status: 'Active' | 'Completed' | 'Discontinued';
+  prescribedBy?: string;
+  createdAt: string;
 }
 
-export interface PatientTimelineEntry {
+export interface PatientDiagnosis {
   id: string;
-  patientRecordId: string;
-  uhid: string;
-  entryType: TimelineEntryType;
-  timestamp: string;
-  authorName: string;
-  authorRole: string;
+  patientId: string;
+  diagnosisName: string;
+  type: 'Primary' | 'Secondary' | 'Differential' | 'Chronic' | 'Resolved';
+  dateDiagnosed: string;
+  clinicalNotes?: string;
+  diagnosedBy?: string;
+  createdAt: string;
+}
+
+export interface PatientClinicalNote {
+  id: string;
+  patientId: string;
+  noteType: 'Progress Note' | 'Admission Note' | 'Clinical Observation' | 'Care Plan' | 'Consultation Note' | 'Nursing Note' | 'Procedure Note';
   title: string;
   content: string;
-  structuredData?: {
-    tests?: StructuredLabItem[];
-    medications?: StructuredMedicationItem[];
-    vitals?: StructuredVitals;
-    imagingModality?: string;
-    bodyPart?: string;
-    impression?: string;
-    procedureName?: string;
-    performedBy?: string;
-    complications?: string;
-    outcome?: string;
-    consultingSpecialty?: string;
-    recommendations?: string;
-    dischargeCondition?: string;
-  };
-  attachments?: EntryAttachment[];
-  isCritical?: boolean;
+  authorName: string;
+  authorRole: string;
+  date?: string;
   createdAt: string;
   updatedAt?: string;
 }
 
-export interface ClinicalTimelineMilestone {
-  timeframe: string;
-  milestone: string;
-  sourceRecord: string;
-  sourceDate: string;
-}
-
-export interface InvestigationFinding {
-  finding: string;
-  category: 'Lab' | 'Imaging' | 'Biomarker' | 'Diagnostic';
-  status: 'Normal' | 'Abnormal' | 'Critical';
-  sourceRecord: string;
-  sourceDate: string;
-}
-
-export interface DocumentedDiagnosis {
-  diagnosis: string;
-  type: 'Primary' | 'Secondary' | 'Differential' | 'Provisional';
-  status: 'Active' | 'Resolved' | 'Under Investigation';
-  sourceRecord: string;
-}
-
-export interface CurrentTreatmentItem {
-  treatment: string;
-  details: string;
-  sourceRecord: string;
-}
-
-export interface CurrentMedicationItem {
-  name: string;
-  dosage: string;
-  frequency: string;
-  route: string;
-  status: 'Active' | 'Changed' | 'New';
-  sourceRecord: string;
-}
-
-export interface MedicationChangeItem {
-  medicine: string;
-  changeType: 'Initiated' | 'Dose Adjusted' | 'Discontinued' | 'Substituted';
-  reason?: string;
-  sourceRecord: string;
-  sourceDate: string;
-}
-
-export interface DocumentedStatus {
-  clinicalCondition: string;
-  vitalTrends: string;
-  sources: string[];
-}
-
-export interface PendingInvestigationItem {
-  investigation: string;
-  scheduledOrOrderedDate?: string;
-  sourceRecord: string;
-}
-
-export interface DocumentedAlertItem {
-  alert: string;
-  severity: 'High' | 'Medium' | 'Info';
-  sourceRecord: string;
-}
-
-export interface SecondOpinionBrief {
-  synthesis: string;
-  keyConsiderations: string[];
-  suggestedClinicalQuestions: string[];
-}
-
-export interface MissingOrConflictingInfo {
-  issueType: 'Missing Information' | 'Conflicting Records' | 'Documentation Gap';
-  description: string;
-  flaggedForHumanReview: boolean;
-  recordsInvolved?: string[];
-}
-
-export interface LivePatientAiSummary {
+export interface PatientDocument {
   id: string;
-  patientRecordId: string;
-  uhid: string;
-  generatedAt: string;
-  reasonForAdmission: {
-    statement: string;
-    sources: string[];
-  };
-  relevantHistory: {
-    statement: string;
-    sources: string[];
-  };
-  clinicalTimeline: ClinicalTimelineMilestone[];
-  importantInvestigationFindings: InvestigationFinding[];
-  documentedDiagnoses: DocumentedDiagnosis[];
-  currentTreatment: CurrentTreatmentItem[];
-  currentMedications: CurrentMedicationItem[];
-  medicationChanges: MedicationChangeItem[];
-  currentDocumentedStatus: DocumentedStatus;
-  pendingInvestigations: PendingInvestigationItem[];
-  importantDocumentedAlerts: DocumentedAlertItem[];
-  secondOpinionBrief: SecondOpinionBrief;
-  missingOrConflictingInformation: MissingOrConflictingInfo[];
-  disclaimer: string;
+  patientId: string;
+  fileName: string;
+  fileType: string;
+  fileSize?: number;
+  category: 'Laboratory Report' | 'Hospital Report' | 'Radiology / Imaging' | 'Clinical Report' | 'Prescription' | 'Other Medical Document';
+  notes?: string;
+  dataUrl: string;
+  uploadedAt: string;
+  uploadedBy?: string;
+  analyzed?: boolean;
+  analysisId?: string;
+  analysis?: any;
 }
+
+export interface ExtractedDocumentData {
+  documentId: string;
+  fileName: string;
+  reportDate?: string;
+  facilityName?: string;
+  patientNameDetected?: string;
+  tests: Array<{
+    testName: string;
+    result: string;
+    unit: string;
+    referenceRange: string;
+    status: TestStatus;
+  }>;
+  abnormalFindings: string[];
+  diagnosesMentioned: string[];
+  medicationsMentioned: string[];
+  clinicalFindings: string;
+  summaryOfFindings?: string;
+  importantObservations: string[];
+  relevantDates: string[];
+}
+
+export type TimelineEventType =
+  | 'Patient Admission'
+  | 'Document Upload'
+  | 'Document Deleted'
+  | 'Document Analyzed'
+  | 'Extracted Data Saved'
+  | 'Vital Added'
+  | 'Lab Result Added'
+  | 'Lab Result Deleted'
+  | 'Medication Added'
+  | 'Medication Status Changed'
+  | 'Diagnosis Added'
+  | 'Clinical Note Added'
+  | 'Medical Summary Created'
+  | 'Prescription Issued'
+  | 'Patient Discharged'
+  | 'Discharge Summary Created'
+  | 'Patient Profile Updated'
+  | string;
+
+export interface PatientTimelineItem {
+  id: string;
+  patientId: string;
+  timestamp: string;
+  eventType?: TimelineEventType;
+  category?: string;
+  title?: string;
+  description: string;
+  source?: string;
+  details?: any;
+  performedBy?: string;
+  createdByName?: string;
+}
+
+export type PatientTimelineEvent = PatientTimelineItem;
+
+export interface PatientAiSummary {
+  id: string;
+  patientId: string;
+  generatedAt: string;
+  modelUsed?: string;
+  patientOverview?: string;
+  overview?: string;
+  overallHealthStatus?: string;
+  clinicalHistory?: string;
+  keyFindings?: string | string[];
+  vitalTrends?: string;
+  labFindingsSummary?: string;
+  labAndVitalTrends?: string;
+  currentMedications?: string;
+  activeTreatmentStatus?: string;
+  diagnoses?: string;
+  importantClinicalNotes?: string;
+  chronologicalTimelineSummary?: string;
+  itemsRequiringAttention?: string;
+  clinicalRecommendations?: string[];
+  criticalAlerts?: string[];
+  questionsAndFollowUp?: string;
+  disclaimer?: string;
+}
+
+export interface PatientDischargeSummary {
+  id: string;
+  patientId: string;
+  generatedAt: string;
+  dischargeDate: string;
+  admissionDate: string;
+  finalDiagnosis: string;
+  conditionAtDischarge: string;
+  hospitalCourseSummary: string;
+  dischargeMedications: string[];
+  dietAndActivityAdvice: string;
+  followUpInstructions: string;
+  emergencyWarningSigns: string[];
+  dischargedBy: string;
+  notes?: string;
+}
+
+export interface LivePatientRecord {
+  id: string;
+  uhid: string;
+  patientName: string;
+  dateOfBirth?: string;
+  age?: number;
+  gender?: string;
+  bloodGroup?: string;
+  department: string;
+  attendingPhysician: string;
+  admissionDateTime: string;
+  bedRoomNo?: string;
+  allergies?: string;
+  reasonForAdmission: string;
+  status: PatientStatus;
+  dischargeDateTime?: string;
+  dischargeSummary?: PatientDischargeSummary | string;
+  dischargeData?: PatientDischargeSummary;
+  emergencyContact?: string;
+  contactPhone?: string;
+  address?: string;
+  userId?: string;
+  createdAt: string;
+  updatedAt: string;
+
+  vitals: PatientVitalEntry[];
+  labResults: PatientLabResult[];
+  medications: PatientMedication[];
+  diagnoses: PatientDiagnosis[];
+  clinicalNotes: PatientClinicalNote[];
+  documents: PatientDocument[];
+  timeline: PatientTimelineItem[];
+  aiSummaries: PatientAiSummary[];
+  prescriptions: Prescription[];
+}
+
+export type ExtractedClinicalData = ExtractedDocumentData;
+export type PatientVitalSign = PatientVitalEntry;
+
+
+
+
 

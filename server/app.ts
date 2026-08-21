@@ -7,7 +7,9 @@ import {
   processHealthChat,
   analyzeSymptoms,
   lookupMedicineInfo,
-  generateLivePatientSummary
+  analyzeMedicalDocument,
+  generatePatientAiClinicalSummary,
+  generateDischargeSummary
 } from './gemini.js';
 import {
   User,
@@ -24,8 +26,16 @@ import {
   PatientDoctorRelationship,
   AuditLog,
   LivePatientRecord,
-  PatientTimelineEntry,
-  LivePatientAiSummary
+  PatientVitalEntry,
+  PatientLabResult,
+  PatientMedication,
+  PatientDiagnosis,
+  PatientClinicalNote,
+  PatientDocument,
+  PatientTimelineItem,
+  PatientAiSummary,
+  PatientDischargeSummary,
+  PatientStatus
 } from '../src/types.js';
 
 dotenv.config();
@@ -1437,651 +1447,1258 @@ export function createApp() {
   });
 
   // ==========================================
-  // 17. LIVE PATIENT HEALTH RECORD ENDPOINTS
+  // LIVE PATIENT HEALTH RECORD (EHR) ENDPOINTS
   // ==========================================
 
-  // GET /api/live-records - List all patient records with optional filters
-  app.get('/api/live-records', (req: Request, res: Response) => {
+  // Helper to ensure patient arrays are well formed
+  function normalizePatient(patient: LivePatientRecord): LivePatientRecord {
+    if (!Array.isArray(patient.vitals)) patient.vitals = [];
+    if (!Array.isArray(patient.labResults)) patient.labResults = [];
+    if (!Array.isArray(patient.medications)) patient.medications = [];
+    if (!Array.isArray(patient.diagnoses)) patient.diagnoses = [];
+    if (!Array.isArray(patient.clinicalNotes)) patient.clinicalNotes = [];
+    if (!Array.isArray(patient.documents)) patient.documents = [];
+    if (!Array.isArray(patient.timeline)) patient.timeline = [];
+    if (!Array.isArray(patient.aiSummaries)) patient.aiSummaries = [];
+    if (!Array.isArray(patient.prescriptions)) patient.prescriptions = [];
+    return patient;
+  }
+
+  // 1. Get Patients List
+  app.get('/api/patients', (req: Request, res: Response) => {
     try {
       const data = db.get();
-      const { search, department, status } = req.query;
-
-      let records = (data.patientRecords || []).slice();
-
-      if (search && typeof search === 'string') {
-        const q = search.trim().toLowerCase();
-        records = records.filter(
-          r =>
-            r.uhid.toLowerCase().includes(q) ||
-            r.patientName.toLowerCase().includes(q) ||
-            r.bedRoomNo.toLowerCase().includes(q) ||
-            r.department.toLowerCase().includes(q) ||
-            r.attendingDoctor.toLowerCase().includes(q) ||
-            r.reasonForAdmission.toLowerCase().includes(q)
-        );
+      if (!Array.isArray(data.patientRecords)) {
+        data.patientRecords = [];
+        db.save(data);
       }
-
-      if (department && typeof department === 'string' && department !== 'All') {
-        records = records.filter(r => r.department.toLowerCase() === department.toLowerCase());
-      }
-
-      if (status && typeof status === 'string' && status !== 'All') {
-        records = records.filter(r => r.status.toLowerCase() === status.toLowerCase());
-      }
-
-      // Sort by last updated / admitted
-      records.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
-
-      res.json({ records });
+      const patients = data.patientRecords.map(normalizePatient);
+      // Return sorted by most recent updated/created
+      patients.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+      res.json({ success: true, count: patients.length, patients });
     } catch (err: any) {
-      console.error('Error fetching live patient records:', err);
-      res.status(500).json({ error: 'Failed to fetch live patient records.' });
+      console.error('Error fetching patients:', err);
+      res.status(500).json({ error: 'Failed to fetch patients list.' });
     }
   });
 
-  // GET /api/live-records/:id - Fetch single patient record, chronological entries, and latest summary
-  app.get('/api/live-records/:id', (req: Request, res: Response) => {
+  // 2. Admit New Patient
+  app.post('/api/patients/admit', (req: Request, res: Response) => {
     try {
-      const { id } = req.params;
-      const data = db.get();
-      const record = (data.patientRecords || []).find(r => r.id === id || r.uhid === id);
-
-      if (!record) {
-        return res.status(404).json({ error: 'Patient record not found.' });
-      }
-
-      const entries = (data.patientTimelineEntries || [])
-        .filter(e => e.patientRecordId === record.id || e.uhid === record.uhid)
-        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-      const summary = (data.patientAiSummaries || []).find(
-        s => s.patientRecordId === record.id || s.uhid === record.uhid
-      ) || null;
-
-      // Log access audit
       const currentUser = authenticateUser(req);
-      if (currentUser) {
-        db.logAudit({
-          userId: currentUser.id,
-          userName: currentUser.name,
-          role: currentUser.role,
-          action: 'PATIENT_RECORD_ACCESSED',
-          recordId: record.id,
-          targetPatientId: record.uhid,
-          details: `Accessed Live Health Record of ${record.patientName} (${record.uhid})`
-        });
-      }
-
-      res.json({
-        record,
-        entries,
-        summary
-      });
-    } catch (err: any) {
-      console.error('Error fetching patient record details:', err);
-      res.status(500).json({ error: 'Failed to load patient record details.' });
-    }
-  });
-
-  // POST /api/live-records - Admit / Create a new Live Patient Record (No prior PDF upload needed!)
-  app.post('/api/live-records', (req: Request, res: Response) => {
-    try {
       const {
         patientName,
         uhid,
-        patientAge,
-        patientGender,
+        dateOfBirth,
+        age,
+        gender,
         bloodGroup,
-        contactPhone,
-        allergies,
-        emergencyContact,
-        bedRoomNo,
-        admissionDateTime,
         department,
-        attendingDoctor,
+        attendingPhysician,
+        admissionDateTime,
+        bedRoomNo,
+        allergies,
         reasonForAdmission,
-        initialVitals,
-        initialDoctorNote
+        emergencyContact,
+        contactPhone,
+        address
       } = req.body;
 
       if (!patientName || !patientName.trim()) {
-        return res.status(400).json({ error: 'Patient Name is required.' });
-      }
-      if (!department || !department.trim()) {
-        return res.status(400).json({ error: 'Admitting Department is required.' });
-      }
-      if (!attendingDoctor || !attendingDoctor.trim()) {
-        return res.status(400).json({ error: 'Attending Doctor is required.' });
+        return res.status(400).json({ error: 'Patient name is required.' });
       }
       if (!reasonForAdmission || !reasonForAdmission.trim()) {
-        return res.status(400).json({ error: 'Reason for Admission is required.' });
+        return res.status(400).json({ error: 'Reason for admission / chief complaint is required.' });
       }
 
       const data = db.get();
-      const currentUser = authenticateUser(req);
-
-      const generatedUhid = (uhid && uhid.trim())
-        ? uhid.trim().toUpperCase()
-        : `UHID-${Math.floor(100000 + Math.random() * 900000)}`;
-
-      const newRecordId = `adm-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-      const now = new Date().toISOString();
-
-      const newRecord: LivePatientRecord = {
-        id: newRecordId,
-        uhid: generatedUhid,
-        patientName: patientName.trim(),
-        patientAge: Number(patientAge) || 0,
-        patientGender: patientGender ? patientGender.trim() : 'Unspecified',
-        bloodGroup: bloodGroup ? bloodGroup.trim() : 'Unknown',
-        contactPhone: contactPhone ? contactPhone.trim() : '',
-        allergies: allergies && allergies.trim() ? allergies.trim() : 'No Known Drug Allergies (NKDA)',
-        emergencyContact: emergencyContact ? emergencyContact.trim() : '',
-        bedRoomNo: bedRoomNo && bedRoomNo.trim() ? bedRoomNo.trim() : 'Triage / Admitting Ward',
-        admissionDateTime: admissionDateTime || now,
-        department: department.trim(),
-        attendingDoctor: attendingDoctor.trim(),
-        attendingDoctorUserId: currentUser?.id,
-        reasonForAdmission: reasonForAdmission.trim(),
-        initialVitals: initialVitals || {
-          bloodPressure: '120/80 mmHg',
-          heartRate: '75 bpm',
-          temperature: '37.0 °C',
-          spO2: '98%',
-          respiratoryRate: '16 /min'
-        },
-        status: 'Admitted',
-        summaryStatus: 'Not Generated',
-        entriesCount: 1,
-        createdAt: now,
-        updatedAt: now
-      };
-
       if (!Array.isArray(data.patientRecords)) {
         data.patientRecords = [];
       }
-      data.patientRecords.unshift(newRecord);
 
-      // Create initial Admission Progress Note entry
-      const initialEntry: PatientTimelineEntry = {
-        id: `ent-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        patientRecordId: newRecordId,
-        uhid: generatedUhid,
-        entryType: 'Doctor / Progress Note',
-        timestamp: admissionDateTime || now,
-        authorName: attendingDoctor.trim(),
-        authorRole: 'Attending Physician',
-        title: 'Inpatient Admission Assessment & Care Plan',
-        content: initialDoctorNote && initialDoctorNote.trim()
-          ? initialDoctorNote.trim()
-          : `Patient admitted to ${department.trim()} under ${attendingDoctor.trim()} for ${reasonForAdmission.trim()}. Initial baseline assessment completed. Continuous clinical monitoring initiated.`,
-        structuredData: {
-          vitals: initialVitals
-            ? {
-                bp: initialVitals.bloodPressure,
-                pulse: initialVitals.heartRate,
-                temp: initialVitals.temperature,
-                spo2: initialVitals.spO2,
-                rr: initialVitals.respiratoryRate
-              }
-            : undefined
-        },
+      const assignedUhid = (uhid && uhid.trim())
+        ? uhid.trim().toUpperCase()
+        : `UHID-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+
+      // Check if UHID already exists
+      const existing = data.patientRecords.find(p => p.uhid === assignedUhid);
+      if (existing) {
+        return res.status(400).json({ error: `A patient with UHID ${assignedUhid} is already admitted.` });
+      }
+
+      const patientId = `pat_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const now = new Date().toISOString();
+      const admTime = admissionDateTime ? new Date(admissionDateTime).toISOString() : now;
+      const attending = attendingPhysician ? attendingPhysician.trim() : (currentUser?.role === 'doctor' ? currentUser.name : 'Dr. Sarah Jenkins, MD');
+      const dept = department ? department.trim() : 'General Medicine';
+
+      const initialTimelineItem: PatientTimelineItem = {
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId,
+        timestamp: admTime,
+        eventType: 'Patient Admission',
+        title: 'Patient Admitted',
+        description: `Admitted to ${dept} under ${attending}. Chief Complaint: ${reasonForAdmission.trim()}`,
+        createdByName: currentUser?.name || attending,
+        details: {
+          bedRoomNo: bedRoomNo || 'Unassigned',
+          allergies: allergies || 'None reported'
+        }
+      };
+
+      const newPatient: LivePatientRecord = {
+        id: patientId,
+        uhid: assignedUhid,
+        patientName: patientName.trim(),
+        dateOfBirth: dateOfBirth || undefined,
+        age: age ? Number(age) : undefined,
+        gender: gender || undefined,
+        bloodGroup: bloodGroup || undefined,
+        department: dept,
+        attendingPhysician: attending,
+        admissionDateTime: admTime,
+        bedRoomNo: bedRoomNo ? bedRoomNo.trim() : undefined,
+        allergies: allergies ? allergies.trim() : undefined,
+        reasonForAdmission: reasonForAdmission.trim(),
+        status: 'Admitted',
+        emergencyContact: emergencyContact ? emergencyContact.trim() : undefined,
+        contactPhone: contactPhone ? contactPhone.trim() : undefined,
+        address: address ? address.trim() : undefined,
+        userId: currentUser?.id,
+        createdAt: now,
+        updatedAt: now,
+        vitals: [],
+        labResults: [],
+        medications: [],
+        diagnoses: [],
+        clinicalNotes: [],
+        documents: [],
+        timeline: [initialTimelineItem],
+        aiSummaries: [],
+        prescriptions: []
+      };
+
+      data.patientRecords.unshift(newPatient);
+      db.save(data);
+
+      res.status(201).json({
+        success: true,
+        message: `Patient ${newPatient.patientName} (${newPatient.uhid}) successfully admitted.`,
+        patient: normalizePatient(newPatient)
+      });
+    } catch (err: any) {
+      console.error('Patient admission error:', err);
+      res.status(500).json({ error: 'Failed to admit patient. Please try again.' });
+    }
+  });
+
+  // 3. Get Single Patient
+  app.get('/api/patients/:id', (req: Request, res: Response) => {
+    try {
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) {
+        data.patientRecords = [];
+        db.save(data);
+      }
+      const patient = data.patientRecords.find(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (!patient) {
+        return res.status(404).json({ error: 'Patient record not found.' });
+      }
+      res.json({ success: true, patient: normalizePatient(patient) });
+    } catch (err: any) {
+      console.error('Error getting patient:', err);
+      res.status(500).json({ error: 'Failed to load patient record.' });
+    }
+  });
+
+  // 4. Update Patient Profile
+  app.put('/api/patients/:id', (req: Request, res: Response) => {
+    try {
+      const currentUser = authenticateUser(req);
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) {
+        return res.status(404).json({ error: 'Patient record not found.' });
+      }
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const {
+        patientName,
+        dateOfBirth,
+        age,
+        gender,
+        bloodGroup,
+        department,
+        attendingPhysician,
+        bedRoomNo,
+        allergies,
+        reasonForAdmission,
+        emergencyContact,
+        contactPhone,
+        address,
+        status
+      } = req.body;
+
+      if (patientName) p.patientName = patientName.trim();
+      if (dateOfBirth !== undefined) p.dateOfBirth = dateOfBirth;
+      if (age !== undefined) p.age = age ? Number(age) : undefined;
+      if (gender !== undefined) p.gender = gender;
+      if (bloodGroup !== undefined) p.bloodGroup = bloodGroup;
+      if (department) p.department = department.trim();
+      if (attendingPhysician) p.attendingPhysician = attendingPhysician.trim();
+      if (bedRoomNo !== undefined) p.bedRoomNo = bedRoomNo ? bedRoomNo.trim() : undefined;
+      if (allergies !== undefined) p.allergies = allergies ? allergies.trim() : undefined;
+      if (reasonForAdmission) p.reasonForAdmission = reasonForAdmission.trim();
+      if (emergencyContact !== undefined) p.emergencyContact = emergencyContact ? emergencyContact.trim() : undefined;
+      if (contactPhone !== undefined) p.contactPhone = contactPhone ? contactPhone.trim() : undefined;
+      if (address !== undefined) p.address = address ? address.trim() : undefined;
+      if (status) p.status = status;
+
+      p.updatedAt = new Date().toISOString();
+
+      p.timeline.unshift({
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        timestamp: p.updatedAt,
+        eventType: 'Patient Profile Updated',
+        title: 'Demographics / Profile Updated',
+        description: 'Patient demographic and clinical profile information was updated.',
+        createdByName: currentUser?.name || 'Medical Staff'
+      });
+
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.json({ success: true, patient: p });
+    } catch (err: any) {
+      console.error('Error updating patient profile:', err);
+      res.status(500).json({ error: 'Failed to update patient profile.' });
+    }
+  });
+
+  // 5. Delete Patient Record
+  app.delete('/api/patients/:id', (req: Request, res: Response) => {
+    try {
+      const currentUser = authenticateUser(req);
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) {
+        return res.status(404).json({ error: 'Patient not found.' });
+      }
+
+      const deleted = data.patientRecords.splice(idx, 1)[0];
+      db.save(data);
+
+      res.json({ success: true, message: `Patient record for ${deleted.patientName} (${deleted.uhid}) deleted.` });
+    } catch (err: any) {
+      console.error('Error deleting patient:', err);
+      res.status(500).json({ error: 'Failed to delete patient record.' });
+    }
+  });
+
+  // 6. Mark Patient Discharged
+  app.post('/api/patients/:id/discharge', (req: Request, res: Response) => {
+    try {
+      const currentUser = authenticateUser(req);
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) {
+        return res.status(404).json({ error: 'Patient not found.' });
+      }
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const now = new Date().toISOString();
+      const dischargeDateTime = req.body.dischargeDateTime ? new Date(req.body.dischargeDateTime).toISOString() : now;
+      const dischargeNotes = req.body.dischargeNotes || 'Patient discharged following clinical evaluation.';
+
+      p.status = 'Discharged';
+      p.dischargeDateTime = dischargeDateTime;
+      p.dischargeSummary = dischargeNotes;
+      p.updatedAt = now;
+
+      p.timeline.unshift({
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        timestamp: dischargeDateTime,
+        eventType: 'Patient Discharged',
+        title: 'Patient Discharged',
+        description: `Discharged by ${currentUser?.name || p.attendingPhysician}. Notes: ${dischargeNotes}`,
+        createdByName: currentUser?.name || p.attendingPhysician
+      });
+
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.json({ success: true, patient: p, message: 'Patient marked as discharged.' });
+    } catch (err: any) {
+      console.error('Discharge error:', err);
+      res.status(500).json({ error: 'Failed to discharge patient.' });
+    }
+  });
+
+  // 7. Create/Generate Discharge Summary
+  app.post('/api/patients/:id/discharge-summary', async (req: Request, res: Response) => {
+    try {
+      const currentUser = authenticateUser(req);
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) {
+        return res.status(404).json({ error: 'Patient not found.' });
+      }
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const manualData: Partial<PatientDischargeSummary> = req.body.dischargeData || {};
+
+      let dischargeData: PatientDischargeSummary;
+      if (req.body.useAi) {
+        dischargeData = await generateDischargeSummary(p);
+      } else {
+        dischargeData = {
+          id: `dcsum_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          patientId: p.id,
+          generatedAt: new Date().toISOString(),
+          dischargeDate: p.dischargeDateTime || new Date().toISOString(),
+          admissionDate: p.admissionDateTime,
+          finalDiagnosis: manualData.finalDiagnosis || p.diagnoses?.[0]?.diagnosisName || p.reasonForAdmission || 'Clinical Recovery',
+          conditionAtDischarge: manualData.conditionAtDischarge || 'Hemodynamically stable and cleared for discharge.',
+          hospitalCourseSummary: manualData.hospitalCourseSummary || `Admitted on ${p.admissionDateTime} for ${p.reasonForAdmission}. Treated in ${p.department} under ${p.attendingPhysician}. Condition stabilized.`,
+          dischargeMedications: Array.isArray(manualData.dischargeMedications) ? manualData.dischargeMedications : (p.medications?.filter(m => m.status === 'Active').map(m => `${m.medicineName} ${m.strength} - ${m.frequency} for ${m.duration}`) || []),
+          dietAndActivityAdvice: manualData.dietAndActivityAdvice || 'Balanced diet as tolerated. Adequate hydration. Gradual resumption of physical activity.',
+          followUpInstructions: manualData.followUpInstructions || `Follow up in ${p.department} clinic with ${p.attendingPhysician} in 7-10 days.`,
+          emergencyWarningSigns: Array.isArray(manualData.emergencyWarningSigns) ? manualData.emergencyWarningSigns : [
+            'High persistent fever (>101°F)',
+            'Sudden chest pain or severe shortness of breath',
+            'Severe dizziness or loss of consciousness'
+          ],
+          dischargedBy: currentUser?.name || p.attendingPhysician,
+          notes: manualData.notes
+        };
+      }
+
+      p.dischargeData = dischargeData;
+      p.dischargeSummary = `${dischargeData.finalDiagnosis} - ${dischargeData.conditionAtDischarge}`;
+      p.updatedAt = new Date().toISOString();
+
+      p.timeline.unshift({
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        timestamp: dischargeData.generatedAt,
+        eventType: 'Discharge Summary Created',
+        title: 'Hospital Discharge Summary Formatted',
+        description: `Formal discharge summary created. Final diagnosis: ${dischargeData.finalDiagnosis}`,
+        createdByName: currentUser?.name || p.attendingPhysician
+      });
+
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.json({ success: true, dischargeData, patient: p });
+    } catch (err: any) {
+      console.error('Discharge summary error:', err);
+      res.status(500).json({ error: 'Failed to create discharge summary.' });
+    }
+  });
+
+  // 8. Add Vitals
+  app.post('/api/patients/:id/vitals', (req: Request, res: Response) => {
+    try {
+      const currentUser = authenticateUser(req);
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const { bloodPressure, heartRate, temperature, spo2, respiratoryRate, notes, recordedAt } = req.body;
+
+      if (!bloodPressure && !heartRate && !temperature && !spo2 && !respiratoryRate) {
+        return res.status(400).json({ error: 'At least one vital sign value is required.' });
+      }
+
+      const timestamp = recordedAt ? new Date(recordedAt).toISOString() : new Date().toISOString();
+      const vitalEntry: PatientVitalEntry = {
+        id: `vit_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        recordedAt: timestamp,
+        bloodPressure: bloodPressure ? bloodPressure.trim() : undefined,
+        heartRate: heartRate ? Number(heartRate) : undefined,
+        temperature: temperature ? Number(temperature) : undefined,
+        spo2: spo2 ? Number(spo2) : undefined,
+        respiratoryRate: respiratoryRate ? Number(respiratoryRate) : undefined,
+        notes: notes ? notes.trim() : undefined,
+        recordedBy: currentUser?.name || 'Staff Nurse'
+      };
+
+      p.vitals.unshift(vitalEntry);
+      p.updatedAt = new Date().toISOString();
+
+      const vitalsText = [
+        vitalEntry.bloodPressure ? `BP: ${vitalEntry.bloodPressure}` : '',
+        vitalEntry.heartRate ? `HR: ${vitalEntry.heartRate} bpm` : '',
+        vitalEntry.spo2 ? `SpO2: ${vitalEntry.spo2}%` : '',
+        vitalEntry.temperature ? `Temp: ${vitalEntry.temperature}°F` : '',
+        vitalEntry.respiratoryRate ? `RR: ${vitalEntry.respiratoryRate}/min` : ''
+      ].filter(Boolean).join(', ');
+
+      p.timeline.unshift({
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        timestamp,
+        eventType: 'Vital Added',
+        title: 'Vital Signs Recorded',
+        description: `${vitalsText}${vitalEntry.notes ? ` (Note: ${vitalEntry.notes})` : ''}`,
+        createdByName: vitalEntry.recordedBy
+      });
+
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.status(201).json({ success: true, vital: vitalEntry, patient: p });
+    } catch (err: any) {
+      console.error('Add vitals error:', err);
+      res.status(500).json({ error: 'Failed to record vitals.' });
+    }
+  });
+
+  // Delete Vital
+  app.delete('/api/patients/:id/vitals/:vitalId', (req: Request, res: Response) => {
+    try {
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      p.vitals = p.vitals.filter(v => v.id !== req.params.vitalId);
+      p.updatedAt = new Date().toISOString();
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.json({ success: true, patient: p });
+    } catch (err: any) {
+      console.error('Delete vital error:', err);
+      res.status(500).json({ error: 'Failed to delete vital.' });
+    }
+  });
+
+  // 9. Add Labs
+  app.post('/api/patients/:id/labs', (req: Request, res: Response) => {
+    try {
+      const currentUser = authenticateUser(req);
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const { testName, result, unit, referenceRange, status = 'Normal', date } = req.body;
+
+      if (!testName || !result) {
+        return res.status(400).json({ error: 'Test name and result value are required.' });
+      }
+
+      const labDate = date ? new Date(date).toISOString() : new Date().toISOString();
+      const labResult: PatientLabResult = {
+        id: `lab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        testName: testName.trim(),
+        result: String(result).trim(),
+        unit: unit ? unit.trim() : '',
+        referenceRange: referenceRange ? referenceRange.trim() : 'N/A',
+        status: status as any,
+        date: labDate,
+        recordedBy: currentUser?.name || 'Lab Technician'
+      };
+
+      p.labResults.unshift(labResult);
+      p.updatedAt = new Date().toISOString();
+
+      p.timeline.unshift({
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        timestamp: labDate,
+        eventType: 'Lab Result Added',
+        title: `Lab Result: ${labResult.testName}`,
+        description: `${labResult.testName}: ${labResult.result} ${labResult.unit} (${labResult.status}) [Ref: ${labResult.referenceRange}]`,
+        createdByName: labResult.recordedBy
+      });
+
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.status(201).json({ success: true, labResult, patient: p });
+    } catch (err: any) {
+      console.error('Add lab error:', err);
+      res.status(500).json({ error: 'Failed to add lab result.' });
+    }
+  });
+
+  // Delete Lab
+  app.delete('/api/patients/:id/labs/:labId', (req: Request, res: Response) => {
+    try {
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const removed = p.labResults.find(l => l.id === req.params.labId);
+      p.labResults = p.labResults.filter(l => l.id !== req.params.labId);
+      p.updatedAt = new Date().toISOString();
+
+      if (removed) {
+        p.timeline.unshift({
+          id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          patientId: p.id,
+          timestamp: new Date().toISOString(),
+          eventType: 'Lab Result Deleted',
+          title: `Lab Removed: ${removed.testName}`,
+          description: `Laboratory test entry for ${removed.testName} was removed from record.`
+        });
+      }
+
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.json({ success: true, patient: p });
+    } catch (err: any) {
+      console.error('Delete lab error:', err);
+      res.status(500).json({ error: 'Failed to delete lab result.' });
+    }
+  });
+
+  // 10. Add Medication
+  app.post('/api/patients/:id/medications', (req: Request, res: Response) => {
+    try {
+      const currentUser = authenticateUser(req);
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const {
+        medicineName,
+        strength,
+        route = 'Oral',
+        frequency,
+        duration,
+        startDate,
+        endDate,
+        instructions,
+        status = 'Active'
+      } = req.body;
+
+      if (!medicineName || !frequency) {
+        return res.status(400).json({ error: 'Medicine name and frequency are required.' });
+      }
+
+      const now = new Date().toISOString();
+      const newMed: PatientMedication = {
+        id: `med_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        medicineName: medicineName.trim(),
+        strength: strength ? strength.trim() : '',
+        route: route ? route.trim() : 'Oral',
+        frequency: frequency.trim(),
+        duration: duration ? duration.trim() : 'As directed',
+        startDate: startDate ? new Date(startDate).toISOString() : now,
+        endDate: endDate ? new Date(endDate).toISOString() : undefined,
+        instructions: instructions ? instructions.trim() : undefined,
+        status: status as any,
+        prescribedBy: currentUser?.name || p.attendingPhysician,
         createdAt: now
       };
 
-      if (!Array.isArray(data.patientTimelineEntries)) {
-        data.patientTimelineEntries = [];
-      }
-      data.patientTimelineEntries.unshift(initialEntry);
+      p.medications.unshift(newMed);
+      p.updatedAt = now;
 
+      p.timeline.unshift({
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        timestamp: now,
+        eventType: 'Medication Added',
+        title: `Medication: ${newMed.medicineName}`,
+        description: `Prescribed ${newMed.medicineName} ${newMed.strength} (${newMed.route}, ${newMed.frequency} for ${newMed.duration})${newMed.instructions ? ` - ${newMed.instructions}` : ''}`,
+        createdByName: newMed.prescribedBy
+      });
+
+      data.patientRecords[idx] = p;
       db.save(data);
 
-      if (currentUser) {
-        db.logAudit({
-          userId: currentUser.id,
-          userName: currentUser.name,
-          role: currentUser.role,
-          action: 'CLINICAL_NOTE_CREATED',
-          recordId: newRecordId,
-          targetPatientId: generatedUhid,
-          details: `Admitted patient ${newRecord.patientName} (${generatedUhid}) to ${newRecord.department}`
+      res.status(201).json({ success: true, medication: newMed, patient: p });
+    } catch (err: any) {
+      console.error('Add medication error:', err);
+      res.status(500).json({ error: 'Failed to add medication.' });
+    }
+  });
+
+  // Update Medication Status / Details
+  app.put('/api/patients/:id/medications/:medId', (req: Request, res: Response) => {
+    try {
+      const currentUser = authenticateUser(req);
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const medIdx = p.medications.findIndex(m => m.id === req.params.medId);
+      if (medIdx === -1) return res.status(404).json({ error: 'Medication not found.' });
+
+      const prevStatus = p.medications[medIdx].status;
+      const { status, instructions, duration, frequency, strength, medicineName, route } = req.body;
+
+      if (status) p.medications[medIdx].status = status;
+      if (instructions !== undefined) p.medications[medIdx].instructions = instructions;
+      if (duration) p.medications[medIdx].duration = duration;
+      if (frequency) p.medications[medIdx].frequency = frequency;
+      if (strength) p.medications[medIdx].strength = strength;
+      if (medicineName) p.medications[medIdx].medicineName = medicineName;
+      if (route) p.medications[medIdx].route = route;
+
+      p.updatedAt = new Date().toISOString();
+
+      if (status && status !== prevStatus) {
+        p.timeline.unshift({
+          id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          patientId: p.id,
+          timestamp: new Date().toISOString(),
+          eventType: 'Medication Status Changed',
+          title: `Medication Status: ${p.medications[medIdx].medicineName}`,
+          description: `Changed status of ${p.medications[medIdx].medicineName} from ${prevStatus} to ${status}.`,
+          createdByName: currentUser?.name || 'Doctor'
         });
       }
 
-      res.status(201).json({
-        success: true,
-        record: newRecord,
-        initialEntry,
-        message: `Digital Patient Record created for ${newRecord.patientName} (${generatedUhid})`
-      });
-    } catch (err: any) {
-      console.error('Error creating live patient record:', err);
-      res.status(500).json({ error: 'Failed to create patient record.' });
-    }
-  });
-
-  // PUT /api/live-records/:id - Update Patient Information / Status / Room / Attending Doctor
-  app.put('/api/live-records/:id', (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const data = db.get();
-      const recordIndex = (data.patientRecords || []).findIndex(r => r.id === id);
-
-      if (recordIndex === -1) {
-        return res.status(404).json({ error: 'Patient record not found.' });
-      }
-
-      const existing = data.patientRecords[recordIndex];
-      const updates = req.body;
-
-      data.patientRecords[recordIndex] = {
-        ...existing,
-        patientName: updates.patientName ? updates.patientName.trim() : existing.patientName,
-        patientAge: updates.patientAge !== undefined ? Number(updates.patientAge) : existing.patientAge,
-        patientGender: updates.patientGender ? updates.patientGender.trim() : existing.patientGender,
-        bloodGroup: updates.bloodGroup ? updates.bloodGroup.trim() : existing.bloodGroup,
-        contactPhone: updates.contactPhone !== undefined ? updates.contactPhone.trim() : existing.contactPhone,
-        allergies: updates.allergies !== undefined ? updates.allergies.trim() : existing.allergies,
-        emergencyContact: updates.emergencyContact !== undefined ? updates.emergencyContact.trim() : existing.emergencyContact,
-        bedRoomNo: updates.bedRoomNo ? updates.bedRoomNo.trim() : existing.bedRoomNo,
-        department: updates.department ? updates.department.trim() : existing.department,
-        attendingDoctor: updates.attendingDoctor ? updates.attendingDoctor.trim() : existing.attendingDoctor,
-        reasonForAdmission: updates.reasonForAdmission ? updates.reasonForAdmission.trim() : existing.reasonForAdmission,
-        status: updates.status || existing.status,
-        dischargeDateTime: updates.dischargeDateTime !== undefined ? updates.dischargeDateTime : existing.dischargeDateTime,
-        dischargeSummary: updates.dischargeSummary !== undefined ? updates.dischargeSummary : existing.dischargeSummary,
-        summaryStatus: 'Updated information available',
-        updatedAt: new Date().toISOString()
-      };
-
+      data.patientRecords[idx] = p;
       db.save(data);
 
-      res.json({
-        success: true,
-        record: data.patientRecords[recordIndex],
-        message: 'Patient record updated successfully.'
-      });
+      res.json({ success: true, medication: p.medications[medIdx], patient: p });
     } catch (err: any) {
-      console.error('Error updating patient record:', err);
-      res.status(500).json({ error: 'Failed to update patient record.' });
+      console.error('Update medication error:', err);
+      res.status(500).json({ error: 'Failed to update medication.' });
     }
   });
 
-  // POST /api/live-records/:id/entries - Add direct clinical entry (Doctor note, lab result, imaging, prescription, nursing vitals, procedure, consultation, discharge, attachment)
-  app.post('/api/live-records/:id/entries', (req: Request, res: Response) => {
+  // Delete Medication
+  app.delete('/api/patients/:id/medications/:medId', (req: Request, res: Response) => {
     try {
-      const { id } = req.params;
-      const {
-        entryType,
-        timestamp,
-        authorName,
-        authorRole,
-        title,
-        content,
-        structuredData,
-        attachments,
-        isCritical
-      } = req.body;
-
-      if (!entryType) {
-        return res.status(400).json({ error: 'Clinical entry type is required.' });
-      }
-      if (!title || !title.trim()) {
-        return res.status(400).json({ error: 'Entry title is required.' });
-      }
-      if (!content || !content.trim()) {
-        return res.status(400).json({ error: 'Clinical note or findings description is required.' });
-      }
-
       const data = db.get();
-      const patient = (data.patientRecords || []).find(r => r.id === id);
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
-      if (!patient) {
-        return res.status(404).json({ error: 'Patient record not found.' });
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      p.medications = p.medications.filter(m => m.id !== req.params.medId);
+      p.updatedAt = new Date().toISOString();
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.json({ success: true, patient: p });
+    } catch (err: any) {
+      console.error('Delete medication error:', err);
+      res.status(500).json({ error: 'Failed to delete medication.' });
+    }
+  });
+
+  // 11. Add Diagnosis
+  app.post('/api/patients/:id/diagnoses', (req: Request, res: Response) => {
+    try {
+      const currentUser = authenticateUser(req);
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const { diagnosisName, type = 'Primary', dateDiagnosed, clinicalNotes } = req.body;
+
+      if (!diagnosisName || !diagnosisName.trim()) {
+        return res.status(400).json({ error: 'Diagnosis name is required.' });
       }
 
-      const currentUser = authenticateUser(req);
       const now = new Date().toISOString();
+      const diagDate = dateDiagnosed ? new Date(dateDiagnosed).toISOString() : now;
+      const newDiag: PatientDiagnosis = {
+        id: `diag_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        diagnosisName: diagnosisName.trim(),
+        type: type as any,
+        dateDiagnosed: diagDate,
+        clinicalNotes: clinicalNotes ? clinicalNotes.trim() : undefined,
+        diagnosedBy: currentUser?.name || p.attendingPhysician,
+        createdAt: now
+      };
 
-      const newEntry: PatientTimelineEntry = {
-        id: `ent-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        patientRecordId: patient.id,
-        uhid: patient.uhid,
-        entryType,
-        timestamp: timestamp || now,
-        authorName: authorName && authorName.trim() ? authorName.trim() : (currentUser?.name || 'Authorized Clinical Staff'),
-        authorRole: authorRole && authorRole.trim() ? authorRole.trim() : (currentUser?.role === 'doctor' ? (currentUser.specialty || 'Attending Physician') : 'Hospital Healthcare Staff'),
+      p.diagnoses.unshift(newDiag);
+      p.updatedAt = now;
+
+      p.timeline.unshift({
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        timestamp: diagDate,
+        eventType: 'Diagnosis Added',
+        title: `Diagnosis: ${newDiag.diagnosisName}`,
+        description: `Established [${newDiag.type}] diagnosis: ${newDiag.diagnosisName}${newDiag.clinicalNotes ? ` (${newDiag.clinicalNotes})` : ''}`,
+        createdByName: newDiag.diagnosedBy
+      });
+
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.status(201).json({ success: true, diagnosis: newDiag, patient: p });
+    } catch (err: any) {
+      console.error('Add diagnosis error:', err);
+      res.status(500).json({ error: 'Failed to add diagnosis.' });
+    }
+  });
+
+  // Delete Diagnosis
+  app.delete('/api/patients/:id/diagnoses/:diagId', (req: Request, res: Response) => {
+    try {
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      p.diagnoses = p.diagnoses.filter(d => d.id !== req.params.diagId);
+      p.updatedAt = new Date().toISOString();
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.json({ success: true, patient: p });
+    } catch (err: any) {
+      console.error('Delete diagnosis error:', err);
+      res.status(500).json({ error: 'Failed to delete diagnosis.' });
+    }
+  });
+
+  // 12. Add Clinical Note
+  app.post('/api/patients/:id/notes', (req: Request, res: Response) => {
+    try {
+      const currentUser = authenticateUser(req);
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const { noteType = 'Progress Note', title, content, date } = req.body;
+
+      if (!title || !content) {
+        return res.status(400).json({ error: 'Note title and content are required.' });
+      }
+
+      const now = new Date().toISOString();
+      const noteDate = date ? new Date(date).toISOString() : now;
+      const newNote: PatientClinicalNote = {
+        id: `note_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        noteType: noteType as any,
         title: title.trim(),
         content: content.trim(),
-        structuredData: structuredData || {},
-        attachments: Array.isArray(attachments) ? attachments : [],
-        isCritical: !!isCritical,
-        createdAt: now,
-        updatedAt: now
+        authorName: currentUser?.name || p.attendingPhysician,
+        authorRole: currentUser?.role === 'doctor' ? (currentUser.specialty || 'Attending Physician') : 'Attending Medical Staff',
+        date: noteDate,
+        createdAt: now
       };
 
-      if (!Array.isArray(data.patientTimelineEntries)) {
-        data.patientTimelineEntries = [];
-      }
-      data.patientTimelineEntries.unshift(newEntry);
+      p.clinicalNotes.unshift(newNote);
+      p.updatedAt = now;
 
-      // Automatically update patient record metadata
-      patient.entriesCount = (patient.entriesCount || 0) + 1;
-      patient.summaryStatus = 'Updated information available';
-      patient.updatedAt = now;
+      p.timeline.unshift({
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        timestamp: noteDate,
+        eventType: 'Clinical Note Added',
+        title: `Note [${newNote.noteType}]: ${newNote.title}`,
+        description: `${newNote.content.slice(0, 160)}${newNote.content.length > 160 ? '...' : ''}`,
+        createdByName: newNote.authorName
+      });
 
-      // If this is a discharge entry, update patient status
-      if (entryType === 'Discharge Information') {
-        patient.status = 'Discharged';
-        patient.dischargeDateTime = timestamp || now;
-        patient.dischargeSummary = content.trim();
-      }
-
+      data.patientRecords[idx] = p;
       db.save(data);
 
-      if (currentUser) {
-        db.logAudit({
-          userId: currentUser.id,
-          userName: currentUser.name,
-          role: currentUser.role,
-          action: 'CLINICAL_NOTE_CREATED',
-          recordId: newEntry.id,
-          targetPatientId: patient.uhid,
-          details: `Added ${entryType} "${title}" for ${patient.patientName} (${patient.uhid})`
+      res.status(201).json({ success: true, note: newNote, patient: p });
+    } catch (err: any) {
+      console.error('Add clinical note error:', err);
+      res.status(500).json({ error: 'Failed to add clinical note.' });
+    }
+  });
+
+  // Delete Clinical Note
+  app.delete('/api/patients/:id/notes/:noteId', (req: Request, res: Response) => {
+    try {
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      p.clinicalNotes = p.clinicalNotes.filter(n => n.id !== req.params.noteId);
+      p.updatedAt = new Date().toISOString();
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.json({ success: true, patient: p });
+    } catch (err: any) {
+      console.error('Delete note error:', err);
+      res.status(500).json({ error: 'Failed to delete note.' });
+    }
+  });
+
+  // 13. Upload Medical Document
+  app.post('/api/patients/:id/documents', (req: Request, res: Response) => {
+    try {
+      const currentUser = authenticateUser(req);
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const { fileName, fileType, fileSize, category = 'Laboratory Report', notes, dataUrl } = req.body;
+
+      if (!fileName || !dataUrl) {
+        return res.status(400).json({ error: 'File name and document data are required.' });
+      }
+
+      const now = new Date().toISOString();
+      const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const doc: PatientDocument = {
+        id: docId,
+        patientId: p.id,
+        fileName: fileName.trim(),
+        fileType: fileType || 'application/pdf',
+        fileSize: fileSize ? Number(fileSize) : undefined,
+        category: category as any,
+        notes: notes ? notes.trim() : undefined,
+        dataUrl,
+        uploadedAt: now,
+        uploadedBy: currentUser?.name || 'Medical Staff',
+        analyzed: false
+      };
+
+      p.documents.unshift(doc);
+      p.updatedAt = now;
+
+      p.timeline.unshift({
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        timestamp: now,
+        eventType: 'Document Upload',
+        title: `Uploaded Document: ${doc.fileName}`,
+        description: `Uploaded [${doc.category}] ${doc.fileName}${doc.notes ? ` (Note: ${doc.notes})` : ''}`,
+        createdByName: doc.uploadedBy
+      });
+
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.status(201).json({ success: true, document: doc, patient: p });
+    } catch (err: any) {
+      console.error('Upload document error:', err);
+      res.status(500).json({ error: 'Failed to upload document.' });
+    }
+  });
+
+  // Delete Document
+  app.delete('/api/patients/:id/documents/:docId', (req: Request, res: Response) => {
+    try {
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const removed = p.documents.find(d => d.id === req.params.docId);
+      p.documents = p.documents.filter(d => d.id !== req.params.docId);
+      p.updatedAt = new Date().toISOString();
+
+      if (removed) {
+        p.timeline.unshift({
+          id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          patientId: p.id,
+          timestamp: new Date().toISOString(),
+          eventType: 'Document Deleted',
+          title: `Document Removed: ${removed.fileName}`,
+          description: `Document ${removed.fileName} (${removed.category}) was removed from the record.`
         });
       }
 
-      res.status(201).json({
-        success: true,
-        entry: newEntry,
-        message: `${entryType} recorded. AI Summary status updated to "Updated information available".`
-      });
-    } catch (err: any) {
-      console.error('Error adding clinical timeline entry:', err);
-      res.status(500).json({ error: 'Failed to record clinical entry.' });
-    }
-  });
-
-  // PUT /api/live-records/:id/entries/:entryId - Edit existing clinical timeline entry
-  app.put('/api/live-records/:id/entries/:entryId', (req: Request, res: Response) => {
-    try {
-      const { id, entryId } = req.params;
-      const updates = req.body;
-      const data = db.get();
-
-      const entryIndex = (data.patientTimelineEntries || []).findIndex(
-        e => e.id === entryId && (e.patientRecordId === id || e.uhid === id)
-      );
-
-      if (entryIndex === -1) {
-        return res.status(404).json({ error: 'Clinical entry not found.' });
-      }
-
-      const existing = data.patientTimelineEntries[entryIndex];
-      const now = new Date().toISOString();
-
-      data.patientTimelineEntries[entryIndex] = {
-        ...existing,
-        title: updates.title ? updates.title.trim() : existing.title,
-        content: updates.content ? updates.content.trim() : existing.content,
-        entryType: updates.entryType || existing.entryType,
-        timestamp: updates.timestamp || existing.timestamp,
-        authorName: updates.authorName ? updates.authorName.trim() : existing.authorName,
-        authorRole: updates.authorRole ? updates.authorRole.trim() : existing.authorRole,
-        structuredData: updates.structuredData || existing.structuredData,
-        attachments: updates.attachments || existing.attachments,
-        isCritical: updates.isCritical !== undefined ? !!updates.isCritical : existing.isCritical,
-        updatedAt: now
-      };
-
-      const patient = (data.patientRecords || []).find(r => r.id === id);
-      if (patient) {
-        patient.summaryStatus = 'Updated information available';
-        patient.updatedAt = now;
-      }
-
+      data.patientRecords[idx] = p;
       db.save(data);
 
-      res.json({
-        success: true,
-        entry: data.patientTimelineEntries[entryIndex],
-        message: 'Clinical entry updated successfully.'
-      });
+      res.json({ success: true, patient: p });
     } catch (err: any) {
-      console.error('Error editing clinical entry:', err);
-      res.status(500).json({ error: 'Failed to edit clinical entry.' });
+      console.error('Delete document error:', err);
+      res.status(500).json({ error: 'Failed to delete document.' });
     }
   });
 
-  // DELETE /api/live-records/:id/entries/:entryId - Remove clinical timeline entry
-  app.delete('/api/live-records/:id/entries/:entryId', (req: Request, res: Response) => {
+  // 14. Analyze Document with AI
+  app.post('/api/patients/:id/documents/:docId/analyze', async (req: Request, res: Response) => {
     try {
-      const { id, entryId } = req.params;
+      const currentUser = authenticateUser(req);
       const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
-      const initialLength = (data.patientTimelineEntries || []).length;
-      data.patientTimelineEntries = (data.patientTimelineEntries || []).filter(
-        e => !(e.id === entryId && (e.patientRecordId === id || e.uhid === id))
-      );
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
 
-      if (data.patientTimelineEntries.length === initialLength) {
-        return res.status(404).json({ error: 'Entry not found.' });
+      const p = normalizePatient(data.patientRecords[idx]);
+      const doc = p.documents.find(d => d.id === req.params.docId);
+      if (!doc) return res.status(404).json({ error: 'Document not found in patient record.' });
+
+      // Extract base64 and mime
+      let base64Data = '';
+      let mimeType = doc.fileType || 'application/pdf';
+
+      if (doc.dataUrl.includes(',')) {
+        const parts = doc.dataUrl.split(',');
+        const mimeMatch = parts[0].match(/:(.*?);/);
+        if (mimeMatch) mimeType = mimeMatch[1];
+        base64Data = parts[1];
+      } else {
+        base64Data = doc.dataUrl;
       }
 
-      const patient = (data.patientRecords || []).find(r => r.id === id);
-      if (patient) {
-        patient.entriesCount = Math.max(0, (patient.entriesCount || 1) - 1);
-        patient.summaryStatus = 'Updated information available';
-        patient.updatedAt = new Date().toISOString();
-      }
-
-      db.save(data);
-
-      res.json({ success: true, message: 'Clinical entry removed.' });
-    } catch (err: any) {
-      console.error('Error deleting clinical entry:', err);
-      res.status(500).json({ error: 'Failed to remove entry.' });
-    }
-  });
-
-  // POST /api/live-records/:id/upload-and-analyze - Upload a medical file, AI analyze with Gemini, and save directly to patient timeline & record
-  app.post('/api/live-records/:id/upload-and-analyze', async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const {
+      const extractedData = await analyzeMedicalDocument({
+        documentId: doc.id,
         base64Data,
         mimeType,
-        fileName,
-        fileSize,
-        documentCategory,
-        authorName,
-        authorRole
+        fileName: doc.fileName,
+        category: doc.category,
+        patientName: p.patientName
+      });
+
+      doc.analyzed = true;
+      doc.analysisId = `an_${Date.now()}`;
+      doc.analysis = extractedData;
+      p.updatedAt = new Date().toISOString();
+
+      p.timeline.unshift({
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        timestamp: new Date().toISOString(),
+        eventType: 'Document Analyzed',
+        title: `AI Analyzed: ${doc.fileName}`,
+        description: `Extracted ${extractedData.tests?.length || 0} test(s), ${extractedData.diagnosesMentioned?.length || 0} diagnosis statement(s), and ${extractedData.medicationsMentioned?.length || 0} medication(s).`,
+        createdByName: currentUser?.name || 'MediVerse AI'
+      });
+
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.json({ success: true, extractedData, patient: p });
+    } catch (err: any) {
+      console.error('Analyze document error:', err);
+      res.status(500).json({ error: 'Failed to analyze document with AI.' });
+    }
+  });
+
+  // 15. Review & Save Extracted Clinical Information
+  app.post('/api/patients/:id/documents/save-extracted', (req: Request, res: Response) => {
+    try {
+      const currentUser = authenticateUser(req);
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const {
+        documentId,
+        documentName,
+        tests = [],
+        diagnoses = [],
+        medications = [],
+        clinicalNotes
       } = req.body;
 
-      if (!base64Data || !mimeType || !fileName) {
-        return res.status(400).json({ error: 'File data, MIME type, and file name are required.' });
-      }
-
-      const data = db.get();
-      const patient = (data.patientRecords || []).find(r => r.id === id || r.uhid === id);
-      if (!patient) {
-        return res.status(404).json({ error: 'Patient record not found.' });
-      }
-
-      const currentUser = authenticateUser(req);
-
-      // Analyze document with Gemini AI
-      const reportAnalysis = await analyzeLabReportDocument({
-        base64Data,
-        mimeType,
-        fileName,
-        fileSize,
-        userId: currentUser?.id
-      });
-
       const now = new Date().toISOString();
-      const cat = documentCategory || (mimeType.includes('image') ? 'Imaging / Radiology Report' : 'Lab Result');
+      let addedCounts = { labs: 0, diagnoses: 0, medications: 0, notes: 0 };
 
-      // Map extracted lab tests
-      const tests = (reportAnalysis.testResults || []).map(t => ({
-        testName: t.testName,
-        result: t.result,
-        unit: t.unit,
-        referenceRange: t.referenceRange,
-        status: t.status as any
-      }));
-
-      const entryTitle = reportAnalysis.labNameDetected
-        ? `${cat}: ${reportAnalysis.labNameDetected}`
-        : `${cat}: ${fileName.replace(/\.[^/.]+$/, '')}`;
-
-      const newEntry: PatientTimelineEntry = {
-        id: `ent-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        patientRecordId: patient.id,
-        uhid: patient.uhid,
-        entryType: cat as any,
-        timestamp: reportAnalysis.reportDate || now,
-        authorName: authorName || currentUser?.name || 'AI Diagnostics & OCR System',
-        authorRole: authorRole || (currentUser?.role === 'doctor' ? (currentUser.specialty || 'Attending Physician') : 'Clinical Diagnostics & AI Analysis'),
-        title: entryTitle,
-        content: `${reportAnalysis.healthSummary}\n\n${reportAnalysis.abnormalFindings && reportAnalysis.abnormalFindings.length > 0 ? 'Abnormal Findings: ' + reportAnalysis.abnormalFindings.map(a => `${a.testName} (${a.value} - ${a.status}): ${a.whatItMeasures}`).join('; ') : 'All detected parameters within evaluated baseline ranges.'}`,
-        structuredData: {
-          tests: tests.length > 0 ? tests : undefined,
-          impression: reportAnalysis.healthSummary
-        },
-        attachments: [
-          {
-            name: fileName,
-            type: mimeType.includes('pdf') ? 'pdf' : mimeType.includes('image') ? 'image' : 'doc',
-            size: fileSize,
-            dataUrl: base64Data.startsWith('data:') ? base64Data : `data:${mimeType};base64,${base64Data}`
+      // 1. Save selected tests
+      if (Array.isArray(tests) && tests.length > 0) {
+        tests.forEach((t: any) => {
+          if (t.testName && t.result) {
+            p.labResults.unshift({
+              id: `lab_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              patientId: p.id,
+              testName: String(t.testName).trim(),
+              result: String(t.result).trim(),
+              unit: t.unit ? String(t.unit).trim() : '',
+              referenceRange: t.referenceRange ? String(t.referenceRange).trim() : 'N/A',
+              status: (t.status as any) || 'Normal',
+              date: now,
+              sourceDocumentId: documentId,
+              sourceDocumentName: documentName || 'Uploaded Medical Document',
+              recordedBy: currentUser?.name || 'AI Extraction Review'
+            });
+            addedCounts.labs++;
           }
-        ],
-        isCritical: reportAnalysis.isEmergency || reportAnalysis.urgencyLevel === 'Emergency Alert' || reportAnalysis.urgencyLevel === 'Prompt Medical Attention Required',
-        createdAt: now,
-        updatedAt: now
-      };
-
-      if (!Array.isArray(data.patientTimelineEntries)) {
-        data.patientTimelineEntries = [];
-      }
-      data.patientTimelineEntries.unshift(newEntry);
-
-      patient.entriesCount = (patient.entriesCount || 0) + 1;
-      patient.summaryStatus = 'Updated information available';
-      patient.updatedAt = now;
-
-      db.save(data);
-
-      if (currentUser) {
-        db.logAudit({
-          userId: currentUser.id,
-          userName: currentUser.name,
-          role: currentUser.role,
-          action: 'REPORT_UPLOADED',
-          recordId: newEntry.id,
-          targetPatientId: patient.uhid,
-          details: `Uploaded and AI-analyzed document "${fileName}" for patient ${patient.patientName} (${patient.uhid})`
         });
       }
 
-      res.status(201).json({
-        success: true,
-        entry: newEntry,
-        analysis: reportAnalysis,
-        message: `Document "${fileName}" analyzed and saved to ${patient.patientName}'s timeline.`
+      // 2. Save selected diagnoses
+      if (Array.isArray(diagnoses) && diagnoses.length > 0) {
+        diagnoses.forEach((d: any) => {
+          const dName = typeof d === 'string' ? d : d.diagnosisName;
+          if (dName && dName.trim()) {
+            p.diagnoses.unshift({
+              id: `diag_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              patientId: p.id,
+              diagnosisName: dName.trim(),
+              type: (d.type as any) || 'Primary',
+              dateDiagnosed: now,
+              clinicalNotes: d.clinicalNotes || (documentName ? `Extracted from document: ${documentName}` : undefined),
+              diagnosedBy: currentUser?.name || 'Attending Physician',
+              createdAt: now
+            });
+            addedCounts.diagnoses++;
+          }
+        });
+      }
+
+      // 3. Save selected medications
+      if (Array.isArray(medications) && medications.length > 0) {
+        medications.forEach((m: any) => {
+          const mName = typeof m === 'string' ? m : m.medicineName;
+          if (mName && mName.trim()) {
+            p.medications.unshift({
+              id: `med_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              patientId: p.id,
+              medicineName: mName.trim(),
+              strength: m.strength ? String(m.strength).trim() : '',
+              route: m.route ? String(m.route).trim() : 'Oral',
+              frequency: m.frequency ? String(m.frequency).trim() : 'As prescribed',
+              duration: m.duration ? String(m.duration).trim() : 'As directed',
+              startDate: now,
+              instructions: m.instructions ? String(m.instructions).trim() : (documentName ? `Identified in: ${documentName}` : undefined),
+              status: 'Active',
+              prescribedBy: currentUser?.name || p.attendingPhysician,
+              createdAt: now
+            });
+            addedCounts.medications++;
+          }
+        });
+      }
+
+      // 4. Save clinical notes if provided
+      if (clinicalNotes && clinicalNotes.trim()) {
+        p.clinicalNotes.unshift({
+          id: `note_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          patientId: p.id,
+          noteType: 'Clinical Observation',
+          title: `Extracted Document Observation (${documentName || 'Document'})`,
+          content: clinicalNotes.trim(),
+          authorName: currentUser?.name || 'Attending Physician',
+          authorRole: 'Clinical Staff',
+          date: now,
+          createdAt: now
+        });
+        addedCounts.notes++;
+      }
+
+      p.updatedAt = now;
+
+      p.timeline.unshift({
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        timestamp: now,
+        eventType: 'Extracted Data Saved',
+        title: `Imported Extracted Data (${documentName || 'Document'})`,
+        description: `Saved ${addedCounts.labs} lab test(s), ${addedCounts.diagnoses} diagnosis(es), ${addedCounts.medications} medication(s) directly into patient health record.`,
+        createdByName: currentUser?.name || 'Medical Staff'
       });
-    } catch (err: any) {
-      console.error('Error analyzing and uploading patient document:', err);
-      res.status(500).json({ error: err.message || 'Failed to analyze and save medical document.' });
-    }
-  });
 
-  // POST /api/live-records/:id/generate-summary - Generate or Refresh AI Current Summary
-  app.post('/api/live-records/:id/generate-summary', async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const data = db.get();
-      const patient = (data.patientRecords || []).find(r => r.id === id || r.uhid === id);
-
-      if (!patient) {
-        return res.status(404).json({ error: 'Patient record not found.' });
-      }
-
-      const entries = (data.patientTimelineEntries || []).filter(
-        e => e.patientRecordId === patient.id || e.uhid === patient.uhid
-      );
-
-      // Call Gemini / clinical synthesis summarizer
-      const newSummary = await generateLivePatientSummary(patient, entries);
-
-      // Save / update in database
-      if (!Array.isArray(data.patientAiSummaries)) {
-        data.patientAiSummaries = [];
-      }
-
-      const existingSummaryIdx = data.patientAiSummaries.findIndex(
-        s => s.patientRecordId === patient.id || s.uhid === patient.uhid
-      );
-
-      if (existingSummaryIdx >= 0) {
-        data.patientAiSummaries[existingSummaryIdx] = newSummary;
-      } else {
-        data.patientAiSummaries.unshift(newSummary);
-      }
-
-      // Mark patient summary status as 'Up to Date'
-      patient.summaryStatus = 'Up to Date';
-      patient.lastSummaryGeneratedAt = newSummary.generatedAt;
-      patient.updatedAt = new Date().toISOString();
-
+      data.patientRecords[idx] = p;
       db.save(data);
-
-      const currentUser = authenticateUser(req);
-      if (currentUser) {
-        db.logAudit({
-          userId: currentUser.id,
-          userName: currentUser.name,
-          role: currentUser.role,
-          action: 'PATIENT_RECORD_ACCESSED',
-          recordId: patient.id,
-          targetPatientId: patient.uhid,
-          details: `Generated up-to-date AI Current Summary for ${patient.patientName} (${patient.uhid}) across ${entries.length} clinical timeline entries`
-        });
-      }
 
       res.json({
         success: true,
-        summary: newSummary,
-        summaryStatus: 'Up to Date',
-        message: 'AI Current Summary generated and up to date.'
+        message: `Successfully imported ${addedCounts.labs} lab(s), ${addedCounts.diagnoses} diagnosis(es), ${addedCounts.medications} medication(s) into patient record.`,
+        addedCounts,
+        patient: p
       });
     } catch (err: any) {
-      console.error('Error generating live patient summary:', err);
-      res.status(500).json({ error: 'Failed to generate AI Current Summary. Please try again.' });
+      console.error('Save extracted data error:', err);
+      res.status(500).json({ error: 'Failed to save extracted information to patient record.' });
     }
   });
 
-  // GET /api/live-records/:id/summary - Fetch latest summary
-  app.get('/api/live-records/:id/summary', (req: Request, res: Response) => {
+  // 16. Create Medical Summary from Actual Patient Records
+  app.post('/api/patients/:id/summary', async (req: Request, res: Response) => {
     try {
-      const { id } = req.params;
+      const currentUser = authenticateUser(req);
       const data = db.get();
-      const summary = (data.patientAiSummaries || []).find(
-        s => s.patientRecordId === id || s.uhid === id
-      );
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
-      if (!summary) {
-        return res.status(404).json({ error: 'No AI Summary generated yet for this patient.' });
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const summary = await generatePatientAiClinicalSummary(p);
+
+      p.aiSummaries.unshift(summary);
+      p.updatedAt = new Date().toISOString();
+
+      p.timeline.unshift({
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        timestamp: summary.generatedAt,
+        eventType: 'Medical Summary Created',
+        title: 'Synthesized AI Clinical Summary',
+        description: 'Comprehensive medical summary generated strictly from actual patient vitals, labs, medications, and notes.',
+        createdByName: currentUser?.name || 'MediVerse AI'
+      });
+
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.json({ success: true, summary, patient: p });
+    } catch (err: any) {
+      console.error('Summary synthesis error:', err);
+      res.status(500).json({ error: 'Failed to generate medical summary.' });
+    }
+  });
+
+  // 17. Create Prescription for Patient
+  app.post('/api/patients/:id/prescriptions', (req: Request, res: Response) => {
+    try {
+      const currentUser = authenticateUser(req);
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === req.params.id || p.uhid === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Patient not found.' });
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const {
+        diagnosis,
+        medicines = [],
+        instructions = '',
+        additionalNotes,
+        followUpDate,
+        doctorName,
+        doctorSpecialty,
+        doctorQualification,
+        doctorLicense
+      } = req.body;
+
+      if (!diagnosis || !medicines || medicines.length === 0) {
+        return res.status(400).json({ error: 'Diagnosis and at least one medication are required.' });
       }
 
-      res.json({ summary });
+      const now = new Date().toISOString();
+      const rxId = `rx_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const rxNumber = `RX-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      const newRx: Prescription = {
+        id: rxId,
+        prescriptionNumber: rxNumber,
+        patientUserId: p.userId || p.id,
+        patientId: p.uhid,
+        patientName: p.patientName,
+        patientAge: p.age,
+        patientGender: p.gender,
+        doctorUserId: currentUser?.id || 'doc-1',
+        doctorName: doctorName || currentUser?.name || p.attendingPhysician,
+        doctorSpecialty: doctorSpecialty || (currentUser?.specialty || 'General Medicine'),
+        doctorQualification: doctorQualification || (currentUser?.qualification || 'MBBS, MD'),
+        doctorLicense: doctorLicense || (currentUser?.licenseNumber || 'MED-2026-LIC'),
+        diagnosis: diagnosis.trim(),
+        medicines: medicines.map((m: any) => ({
+          name: m.name ? m.name.trim() : '',
+          strength: m.strength ? m.strength.trim() : '',
+          frequency: m.frequency ? m.frequency.trim() : '',
+          duration: m.duration ? m.duration.trim() : '',
+          instructions: m.instructions ? m.instructions.trim() : ''
+        })),
+        instructions: instructions ? instructions.trim() : 'Take medications as directed.',
+        additionalNotes: additionalNotes ? additionalNotes.trim() : undefined,
+        followUpDate: followUpDate || undefined,
+        createdAt: now
+      };
+
+      // Add to global prescriptions
+      if (!Array.isArray(data.prescriptions)) data.prescriptions = [];
+      data.prescriptions.unshift(newRx);
+
+      // Add to patient record
+      p.prescriptions.unshift(newRx);
+
+      // Also automatically add active medications to patient's medication list if not already present
+      medicines.forEach((m: any) => {
+        if (m.name) {
+          const exists = p.medications.some(
+            existing => existing.medicineName.toLowerCase() === m.name.toLowerCase() && existing.status === 'Active'
+          );
+          if (!exists) {
+            p.medications.unshift({
+              id: `med_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              patientId: p.id,
+              medicineName: m.name.trim(),
+              strength: m.strength ? m.strength.trim() : '',
+              route: 'Oral',
+              frequency: m.frequency ? m.frequency.trim() : 'As directed',
+              duration: m.duration ? m.duration.trim() : '7 days',
+              startDate: now,
+              instructions: m.instructions ? m.instructions.trim() : undefined,
+              status: 'Active',
+              prescribedBy: newRx.doctorName,
+              createdAt: now
+            });
+          }
+        }
+      });
+
+      p.updatedAt = now;
+
+      p.timeline.unshift({
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        timestamp: now,
+        eventType: 'Prescription Issued',
+        title: `Digital Prescription #${rxNumber} Issued`,
+        description: `Prescription issued by ${newRx.doctorName} for ${newRx.diagnosis}. Prescribed ${newRx.medicines.length} item(s).`,
+        createdByName: newRx.doctorName
+      });
+
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      res.status(201).json({ success: true, prescription: newRx, patient: p });
     } catch (err: any) {
-      console.error('Error fetching AI summary:', err);
-      res.status(500).json({ error: 'Failed to fetch AI summary.' });
+      console.error('Prescription creation error:', err);
+      res.status(500).json({ error: 'Failed to create prescription.' });
     }
   });
-
 
   // Catch-all 404 handler for unmatched /api/* requests so they ALWAYS return JSON, NEVER HTML!
   app.all('/api/*', (req: Request, res: Response) => {

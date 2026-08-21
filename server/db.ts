@@ -15,9 +15,7 @@ import {
   PatientDoctorRelationship,
   AuditLog,
   UserRole,
-  LivePatientRecord,
-  PatientTimelineEntry,
-  LivePatientAiSummary
+  LivePatientRecord
 } from '../src/types.js';
 
 // Support both standard server (local/container) and Vercel Serverless (where process.cwd() is read-only)
@@ -39,8 +37,6 @@ interface DatabaseSchema {
   patientDoctorRelationships: PatientDoctorRelationship[];
   auditLogs: AuditLog[];
   patientRecords: LivePatientRecord[];
-  patientTimelineEntries: PatientTimelineEntry[];
-  patientAiSummaries: LivePatientAiSummary[];
 }
 
 const DEFAULT_DOCTORS: Doctor[] = [
@@ -108,9 +104,7 @@ function createDefaultDb(): DatabaseSchema {
     clinicalNotes: [],
     patientDoctorRelationships: [],
     auditLogs: [],
-    patientRecords: [],
-    patientTimelineEntries: [],
-    patientAiSummaries: []
+    patientRecords: []
   };
 }
 
@@ -147,8 +141,6 @@ function initDb(): DatabaseSchema {
     if (!Array.isArray(parsed.patientDoctorRelationships)) parsed.patientDoctorRelationships = [];
     if (!Array.isArray(parsed.auditLogs)) parsed.auditLogs = [];
     if (!Array.isArray(parsed.patientRecords)) parsed.patientRecords = [];
-    if (!Array.isArray(parsed.patientTimelineEntries)) parsed.patientTimelineEntries = [];
-    if (!Array.isArray(parsed.patientAiSummaries)) parsed.patientAiSummaries = [];
 
     memoryCache = parsed;
     return parsed;

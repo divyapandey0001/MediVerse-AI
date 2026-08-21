@@ -12,9 +12,9 @@ import { HealthChatPage } from './pages/HealthChatPage.js';
 import { ProfilePage } from './pages/ProfilePage.js';
 import { PatientDashboard } from './pages/PatientDashboard.js';
 import { DoctorDashboard } from './pages/DoctorDashboard.js';
+import { LivePatientRecordPage } from './pages/LivePatientRecordPage.js';
 import { AboutPage } from './pages/AboutPage.js';
 import { ContactPage } from './pages/ContactPage.js';
-import { LivePatientRecordPage } from './pages/LivePatientRecordPage.js';
 import { LoginPage, SignUpPage, ForgotPasswordPage } from './pages/AuthPages.js';
 import { MessageSquare } from 'lucide-react';
 import { useAuth } from './context/AuthContext.js';
@@ -48,14 +48,14 @@ function AppContent() {
         return <AppointmentPage onNavigate={setCurrentPage} />;
       case 'ai-chat':
         return <HealthChatPage onNavigate={setCurrentPage} />;
-      case 'live-records':
-      case 'patient-records':
-      case 'live-record':
-        return <LivePatientRecordPage onNavigate={setCurrentPage} />;
       case 'patient-dashboard':
         return <PatientDashboard onNavigate={setCurrentPage} />;
       case 'doctor-dashboard':
         return <DoctorDashboard onNavigate={setCurrentPage} />;
+      case 'live-patient-record':
+      case 'live-ehr':
+      case 'patient-record':
+        return <LivePatientRecordPage onNavigate={setCurrentPage} />;
       case 'profile':
         if (user?.role === 'doctor') {
           return <DoctorDashboard onNavigate={setCurrentPage} />;
