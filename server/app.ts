@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import { db } from './db.js';
 import {
@@ -99,6 +100,140 @@ export function createApp() {
 
   app.get('/api/health', handleHealth);
   app.get('/health', handleHealth);
+
+  // --- Sitemap & Robots Routes ---
+  const SITEMAP_XML_STRING = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9
+        http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/services</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/lab-report</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/symptom-checker</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/medicine-info</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/bmi</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/appointment</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/ai-chat</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/about</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/reviews</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/contact</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+</urlset>`;
+
+  const ROBOTS_TXT_STRING = `# robots.txt for MediVerse AI Healthcare Platform
+# https://medi-verse-ai-wine.vercel.app
+
+User-agent: *
+Allow: /
+Allow: /services
+Allow: /lab-report
+Allow: /symptom-checker
+Allow: /medicine-info
+Allow: /bmi
+Allow: /appointment
+Allow: /ai-chat
+Allow: /about
+Allow: /reviews
+Allow: /contact
+
+# Disallow private user dashboards, live health records and internal API routes
+Disallow: /api/
+Disallow: /patient-dashboard
+Disallow: /doctor-dashboard
+Disallow: /live-patient-record
+Disallow: /live-ehr
+Disallow: /patient-record
+Disallow: /profile
+
+# Sitemap Reference
+Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
+`;
+
+  const handleSitemap = (req: Request, res: Response) => {
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    const publicSitemap = path.join(process.cwd(), 'public', 'sitemap.xml');
+    if (fs.existsSync(publicSitemap)) {
+      return res.sendFile(publicSitemap);
+    }
+    const distSitemap = path.join(process.cwd(), 'dist', 'sitemap.xml');
+    if (fs.existsSync(distSitemap)) {
+      return res.sendFile(distSitemap);
+    }
+    res.status(200).send(SITEMAP_XML_STRING);
+  };
+
+  const handleRobots = (req: Request, res: Response) => {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    const publicRobots = path.join(process.cwd(), 'public', 'robots.txt');
+    if (fs.existsSync(publicRobots)) {
+      return res.sendFile(publicRobots);
+    }
+    const distRobots = path.join(process.cwd(), 'dist', 'robots.txt');
+    if (fs.existsSync(distRobots)) {
+      return res.sendFile(distRobots);
+    }
+    res.status(200).send(ROBOTS_TXT_STRING);
+  };
+
+  app.get('/sitemap.xml', handleSitemap);
+  app.get('/api/sitemap.xml', handleSitemap);
+  app.get('/robots.txt', handleRobots);
+  app.get('/api/robots.txt', handleRobots);
 
   // 1. Authentication Endpoints
   app.post('/api/auth/signup', (req: Request, res: Response) => {

@@ -1,0 +1,27 @@
+# robots.txt for MediVerse AI Healthcare Platform
+# https://medi-verse-ai-wine.vercel.app
+
+User-agent: *
+Allow: /
+Allow: /services
+Allow: /lab-report
+Allow: /symptom-checker
+Allow: /medicine-info
+Allow: /bmi
+Allow: /appointment
+Allow: /ai-chat
+Allow: /about
+Allow: /reviews
+Allow: /contact
+
+# Disallow private user dashboards, live health records and internal API routes
+Disallow: /api/
+Disallow: /patient-dashboard
+Disallow: /doctor-dashboard
+Disallow: /live-patient-record
+Disallow: /live-ehr
+Disallow: /patient-record
+Disallow: /profile
+
+# Sitemap Reference
+Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
