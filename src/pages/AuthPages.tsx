@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.js';
 import { UserRole } from '../types.js';
+import { SEOHead } from '../components/SEOHead.js';
 
 interface AuthPageProps {
   onNavigate: (page: string) => void;
@@ -75,6 +76,12 @@ export const LoginPage: React.FC<AuthPageProps> = ({ onNavigate }) => {
 
   return (
     <div id="login-page" className="min-h-[80vh] flex items-center justify-center bg-slate-50 py-12 px-4 sm:px-6">
+      <SEOHead
+        title="Log In | MediVerse AI Healthcare Portal"
+        description="Secure sign-in for patient and physician medical portals."
+        canonicalPath="/login"
+        noIndex={true}
+      />
       <div className="max-w-md w-full bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 shadow-sm space-y-6">
         <div className="text-center space-y-2">
           <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center mx-auto shadow-md shadow-blue-600/20">
@@ -301,6 +308,12 @@ export const SignUpPage: React.FC<AuthPageProps> = ({ onNavigate }) => {
 
   return (
     <div id="signup-page" className="min-h-[80vh] flex items-center justify-center bg-slate-50 py-12 px-4 sm:px-6">
+      <SEOHead
+        title="Create an Account | MediVerse AI Healthcare Portal"
+        description="Patient and clinical provider registration for MediVerse healthcare system."
+        canonicalPath="/signup"
+        noIndex={true}
+      />
       <div className="max-w-2xl w-full bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 shadow-sm space-y-6">
         <div className="text-center space-y-2">
           <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center mx-auto shadow-md shadow-blue-600/20">
@@ -675,6 +688,12 @@ export const ForgotPasswordPage: React.FC<AuthPageProps> = ({ onNavigate }) => {
 
   return (
     <div id="forgot-password-page" className="min-h-[80vh] flex items-center justify-center bg-slate-50 py-12 px-4 sm:px-6">
+      <SEOHead
+        title="Reset Password | MediVerse AI Healthcare Portal"
+        description="Password recovery for MediVerse users."
+        canonicalPath="/forgot-password"
+        noIndex={true}
+      />
       <div className="max-w-md w-full bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 shadow-sm space-y-6">
         <div className="text-center space-y-2">
           <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center mx-auto shadow-md shadow-blue-600/20">

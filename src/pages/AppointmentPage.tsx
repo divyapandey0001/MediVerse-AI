@@ -16,6 +16,7 @@ import {
 import { useAuth } from '../context/AuthContext.js';
 import { Doctor, Appointment } from '../types.js';
 import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
+import { SEOHead } from '../components/SEOHead.js';
 
 interface AppointmentPageProps {
   onNavigate: (page: string) => void;
@@ -152,6 +153,19 @@ export const AppointmentPage: React.FC<AppointmentPageProps> = ({ onNavigate }) 
 
   return (
     <div id="appointment-page" className="min-h-screen bg-slate-50 py-8 sm:py-12">
+      <SEOHead
+        title="Schedule a Doctor Appointment & Clinical Consultation | MediVerse AI"
+        description="Book a medical consultation with certified healthcare specialists across Cardiology, General Practice, Neurology, and Pediatrics directly on MediVerse."
+        canonicalPath="/appointment"
+        keywords="doctor appointment, schedule consultation, medical specialist booking, clinic appointment online, health consultation"
+        structuredData={{
+          "@context": "https://schema.org",
+          "@type": "WebPage",
+          "name": "Doctor Appointment Booking",
+          "description": "Schedule consultations with verified medical specialists.",
+          "url": "https://medi-verse-ai-wine.vercel.app/appointment"
+        }}
+      />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-8">
         {/* Header */}
         <div className="text-center max-w-2xl mx-auto space-y-3">

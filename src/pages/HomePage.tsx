@@ -33,6 +33,7 @@ import {
   LogIn
 } from 'lucide-react';
 import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
+import { SEOHead } from '../components/SEOHead.js';
 import { Review, FeedbackType } from '../types.js';
 import { useAuth } from '../context/AuthContext.js';
 
@@ -483,6 +484,12 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
   return (
     <div id="home-page" className="min-h-screen bg-[#f0f6fc]">
+      <SEOHead
+        title="MediVerse AI - AI Powered Healthcare Platform & Medical Records"
+        description="MediVerse AI is an intelligent digital healthcare platform providing AI lab report analysis, symptom triage, medicine info, and secure patient health records."
+        canonicalPath="/"
+        keywords="AI healthcare platform, healthcare AI, digital health platform, AI health assistant, AI lab report analysis, AI symptom checker, medicine information"
+      />
       <DisclaimerBanner compact />
 
       {/* 2. HOMEPAGE HERO WITH BACKGROUND VIDEO */}

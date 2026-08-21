@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { MedicineInfoResult } from '../types.js';
 import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
+import { SEOHead } from '../components/SEOHead.js';
 
 interface MedicineInfoPageProps {
   onNavigate: (page: string) => void;
@@ -66,6 +67,19 @@ export const MedicineInfoPage: React.FC<MedicineInfoPageProps> = ({ onNavigate }
 
   return (
     <div id="medicine-info-page" className="min-h-screen bg-slate-50 py-8 sm:py-12">
+      <SEOHead
+        title="Medicine Information & Prescription Drug Guide | MediVerse AI"
+        description="Search medications for verified educational information on generic active ingredients, clinical uses, side effects, precautions, and food/drug interactions."
+        canonicalPath="/medicine-info"
+        keywords="medicine information, prescription drug guide, medication side effects, drug interactions, generic medicine lookup, healthcare AI"
+        structuredData={{
+          "@context": "https://schema.org",
+          "@type": "MedicalWebPage",
+          "name": "Medicine Information & Drug Reference",
+          "description": "Educational medication guide and pharmaceutical active ingredient reference.",
+          "url": "https://medi-verse-ai-wine.vercel.app/medicine-info"
+        }}
+      />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-8">
         {/* Header */}
         <div className="text-center max-w-2xl mx-auto space-y-3">

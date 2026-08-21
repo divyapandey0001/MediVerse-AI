@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { SymptomAnalysisResult } from '../types.js';
 import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
+import { SEOHead } from '../components/SEOHead.js';
 
 interface SymptomCheckerPageProps {
   onNavigate: (page: string) => void;
@@ -75,6 +76,19 @@ export const SymptomCheckerPage: React.FC<SymptomCheckerPageProps> = ({ onNaviga
 
   return (
     <div id="symptom-checker-page" className="min-h-screen bg-slate-50 py-8 sm:py-12">
+      <SEOHead
+        title="AI Symptom Checker & Clinical Health Triage | MediVerse AI"
+        description="Check your symptoms with our AI health assistant. Understand possible common causes, critical warning signs, and get guidance on when to seek medical care."
+        canonicalPath="/symptom-checker"
+        keywords="AI symptom checker, symptom triage, AI health assistant, check symptoms online, health warning signs, digital healthcare"
+        structuredData={{
+          "@context": "https://schema.org",
+          "@type": "MedicalWebPage",
+          "name": "AI Symptom Checker",
+          "description": "Educational symptom triage guide and common health factor assessments.",
+          "url": "https://medi-verse-ai-wine.vercel.app/symptom-checker"
+        }}
+      />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-8">
         {/* Header */}
         <div className="text-center max-w-2xl mx-auto space-y-3">

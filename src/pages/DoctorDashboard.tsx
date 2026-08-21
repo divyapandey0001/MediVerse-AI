@@ -28,6 +28,7 @@ import {
 import { useAuth } from '../context/AuthContext.js';
 import { User, Prescription, ClinicalNote, Appointment, LabReportAnalysis, AuditLog } from '../types.js';
 import { downloadPrescriptionPDF, downloadReportPDF, downloadHealthSummaryPDF } from '../utils/pdfExport.js';
+import { SEOHead } from '../components/SEOHead.js';
 
 interface DoctorDashboardProps {
   onNavigate: (page: string) => void;
@@ -319,6 +320,12 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate }) 
 
   return (
     <div id="doctor-dashboard-container" className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
+      <SEOHead
+        title="Physician Clinical Dashboard | MediVerse"
+        description="Clinical physician portal for patient roster oversight, digital e-prescriptions, and medical note management."
+        canonicalPath="/doctor-dashboard"
+        noIndex={true}
+      />
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Doctor Header Card */}
         <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm">

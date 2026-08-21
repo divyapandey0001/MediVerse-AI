@@ -12,6 +12,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
+import { SEOHead } from '../components/SEOHead.js';
 
 interface AboutPageProps {
   onNavigate: (page: string) => void;
@@ -20,6 +21,19 @@ interface AboutPageProps {
 export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
   return (
     <div id="about-page" className="min-h-screen bg-[#f0f6fc] py-10 sm:py-16">
+      <SEOHead
+        title="About MediVerse AI - Advancing Accessible Healthcare Technology"
+        description="Learn about the MediVerse mission: empowering patients and doctors with accurate OCR document extraction, clinical safety boundaries, and privacy-first AI."
+        canonicalPath="/about"
+        keywords="about MediVerse AI, digital health platform, healthcare AI mission, patient health literacy, clinical safety"
+        structuredData={{
+          "@context": "https://schema.org",
+          "@type": "AboutPage",
+          "name": "About MediVerse AI",
+          "description": "Our mission to provide transparent, accessible, and privacy-first AI healthcare tools.",
+          "url": "https://medi-verse-ai-wine.vercel.app/about"
+        }}
+      />
       <div className="max-w-5xl mx-auto px-4 sm:px-6 space-y-12">
         {/* Hero Section */}
         <div className="text-center max-w-3xl mx-auto space-y-4">

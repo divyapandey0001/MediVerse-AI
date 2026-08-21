@@ -32,6 +32,7 @@ import { PatientPrescriptionsTab } from '../components/patient-record/PatientPre
 import { PatientSummariesTab } from '../components/patient-record/PatientSummariesTab.js';
 import { PatientTimelineTab } from '../components/patient-record/PatientTimelineTab.js';
 import { PatientProfileTab } from '../components/patient-record/PatientProfileTab.js';
+import { SEOHead } from '../components/SEOHead.js';
 
 interface LivePatientRecordPageProps {
   onNavigate: (page: string) => void;
@@ -120,6 +121,12 @@ export const LivePatientRecordPage: React.FC<LivePatientRecordPageProps> = ({ on
 
   return (
     <div className="min-h-screen bg-slate-50/50 py-8 px-4 sm:px-6 lg:px-8">
+      <SEOHead
+        title="Live Patient Electronic Health Record (EHR) | MediVerse"
+        description="Comprehensive clinical patient health record workspace, document OCR, vitals tracking, and clinical notes."
+        canonicalPath="/live-patient-record"
+        noIndex={true}
+      />
       <div className="max-w-7xl mx-auto space-y-6">
         
         {/* VIEW 1: PATIENT RECORD WORKSPACE (when a patient is selected) */}

@@ -22,6 +22,7 @@ import {
 import { LabReportAnalysis, TestStatus } from '../types.js';
 import { useAuth } from '../context/AuthContext.js';
 import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
+import { SEOHead } from '../components/SEOHead.js';
 import { saveReportToFirestore, uploadMedicalDocument } from '../lib/firebase.js';
 
 
@@ -217,6 +218,19 @@ export const LabReportPage: React.FC<LabReportPageProps> = ({ onNavigate }) => {
 
   return (
     <div id="lab-report-page" className="min-h-screen bg-slate-50 py-8 sm:py-12">
+      <SEOHead
+        title="AI Lab Report Analysis & Blood Test Interpretation | MediVerse AI"
+        description="Upload blood tests, lipid panels, and metabolic lab reports. Get instant plain-language AI analysis, reference range checks, and educational health insights."
+        canonicalPath="/lab-report"
+        keywords="AI lab report analysis, blood test interpreter, medical report OCR, lab results explanation, abnormal lab values, digital health platform"
+        structuredData={{
+          "@context": "https://schema.org",
+          "@type": "MedicalWebPage",
+          "name": "AI Lab Report Analysis",
+          "description": "Upload and analyze laboratory reports with OCR extraction and clinical parameter reference checks.",
+          "url": "https://medi-verse-ai-wine.vercel.app/lab-report"
+        }}
+      />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
         {/* Header Title */}
         <div className="text-center max-w-3xl mx-auto space-y-3">

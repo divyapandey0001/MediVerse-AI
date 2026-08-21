@@ -33,6 +33,7 @@ import {
 import { useAuth } from '../context/AuthContext.js';
 import { LabReportAnalysis, Prescription, ClinicalNote, Appointment, BmiRecord, AuditLog, ReportComparisonResult } from '../types.js';
 import { downloadPrescriptionPDF, downloadReportPDF, downloadHealthSummaryPDF, downloadReportComparisonPDF } from '../utils/pdfExport.js';
+import { SEOHead } from '../components/SEOHead.js';
 
 interface PatientDashboardProps {
   onNavigate: (page: string) => void;
@@ -245,6 +246,12 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ onNavigate }
 
   return (
     <div id="patient-dashboard-container" className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
+      <SEOHead
+        title="Patient Health Portal & Medical Records | MediVerse"
+        description="Private patient health records, laboratory reports, and prescription management."
+        canonicalPath="/patient-dashboard"
+        noIndex={true}
+      />
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Top Header Card */}
         <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm">

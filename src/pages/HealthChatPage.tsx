@@ -16,6 +16,7 @@ import ReactMarkdown from 'react-markdown';
 import { ChatMessage } from '../types.js';
 import { useAuth } from '../context/AuthContext.js';
 import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
+import { SEOHead } from '../components/SEOHead.js';
 
 interface HealthChatPageProps {
   onNavigate: (page: string) => void;
@@ -131,6 +132,19 @@ export const HealthChatPage: React.FC<HealthChatPageProps> = ({ onNavigate }) =>
 
   return (
     <div id="ai-health-chat-page" className="min-h-screen bg-slate-50 py-6 sm:py-10">
+      <SEOHead
+        title="AI Health Assistant & Conversational Medical Chat | MediVerse AI"
+        description="Chat with MediVerse AI health assistant for 24/7 educational health information, wellness inquiries, and lab report context guidance in plain language."
+        canonicalPath="/ai-chat"
+        keywords="AI health assistant, healthcare AI, health chat, medical assistant AI, wellness information, digital health platform"
+        structuredData={{
+          "@context": "https://schema.org",
+          "@type": "WebPage",
+          "name": "AI Health Assistant Chat",
+          "description": "24/7 conversational AI for health literacy and medical concept explanations.",
+          "url": "https://medi-verse-ai-wine.vercel.app/ai-chat"
+        }}
+      />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-6">
         {/* Header Title */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

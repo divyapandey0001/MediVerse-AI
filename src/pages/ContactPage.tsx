@@ -11,6 +11,7 @@ import {
   Clock
 } from 'lucide-react';
 import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
+import { SEOHead } from '../components/SEOHead.js';
 
 export const ContactPage: React.FC = () => {
   const [name, setName] = useState('');
@@ -58,6 +59,19 @@ export const ContactPage: React.FC = () => {
 
   return (
     <div id="contact-page" className="min-h-screen bg-[#f0f6fc] py-10 sm:py-16">
+      <SEOHead
+        title="Contact MediVerse AI - Patient Support & Clinical Enquiries"
+        description="Get in touch with the MediVerse technical and customer support team. Inquire about platform features, security standards, or partnership opportunities."
+        canonicalPath="/contact"
+        keywords="contact MediVerse, healthcare AI support, digital health inquiries, customer service"
+        structuredData={{
+          "@context": "https://schema.org",
+          "@type": "ContactPage",
+          "name": "Contact MediVerse Support",
+          "description": "Customer and technical support for MediVerse AI Healthcare Platform.",
+          "url": "https://medi-verse-ai-wine.vercel.app/contact"
+        }}
+      />
       <div className="max-w-5xl mx-auto px-4 sm:px-6 space-y-12">
         {/* Header */}
         <div className="text-center max-w-2xl mx-auto space-y-3">

@@ -191,7 +191,7 @@ Allow: /about
 Allow: /reviews
 Allow: /contact
 
-# Disallow private user dashboards, live health records and internal API routes
+# Disallow private user dashboards, medical records, patient data, authentication and internal APIs
 Disallow: /api/
 Disallow: /patient-dashboard
 Disallow: /doctor-dashboard
@@ -199,6 +199,9 @@ Disallow: /live-patient-record
 Disallow: /live-ehr
 Disallow: /patient-record
 Disallow: /profile
+Disallow: /login
+Disallow: /signup
+Disallow: /forgot-password
 
 # Sitemap Reference
 Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml

@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.js';
 import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
+import { SEOHead } from '../components/SEOHead.js';
 import { BmiRecord } from '../types.js';
 
 interface BmiCalculatorPageProps {
@@ -183,6 +184,19 @@ export const BmiCalculatorPage: React.FC<BmiCalculatorPageProps> = ({ onNavigate
 
   return (
     <div id="bmi-calculator-page" className="min-h-screen bg-slate-50 py-8 sm:py-12">
+      <SEOHead
+        title="BMI Calculator & Body Mass Index Health Guide | MediVerse AI"
+        description="Calculate Body Mass Index (BMI) using standard metric or imperial formulas. Receive customized educational lifestyle, nutrition, and wellness pointers."
+        canonicalPath="/bmi"
+        keywords="BMI calculator, body mass index, healthy weight range, BMI category, lifestyle health guidance, health metrics"
+        structuredData={{
+          "@context": "https://schema.org",
+          "@type": "WebPage",
+          "name": "BMI Calculator & Weight Assessment",
+          "description": "Standard Body Mass Index calculator with health category classifications and lifestyle guidance.",
+          "url": "https://medi-verse-ai-wine.vercel.app/bmi"
+        }}
+      />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-8">
         {/* Header */}
         <div className="text-center max-w-2xl mx-auto space-y-3">
