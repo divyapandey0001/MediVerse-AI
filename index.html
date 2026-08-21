@@ -2,17 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- Google tag (gtag.js) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <!-- Resource Preconnect & DNS Prefetch to eliminate connection latency -->
+    <link rel="preconnect" href="https://res.cloudinary.com" crossorigin />
+    <link rel="dns-prefetch" href="https://res.cloudinary.com" />
+    <link rel="preconnect" href="https://www.googletagmanager.com" crossorigin />
+    <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
+
+    <!-- Google Analytics (Async & Non-blocking) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-CCLDSHRY3R"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
-
-      gtag('config', 'G-CCLDSHRY3R');
+      gtag('config', 'G-CCLDSHRY3R', { 'send_page_view': true });
     </script>
     <meta name="google-site-verification" content="5KVgCerErMzoUu9KJN1RHEHNaNKyUu-f4zsplq5zAbA" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MediVerse AI - AI Powered Healthcare Platform & Medical Records</title>
     <meta name="description" content="MediVerse AI is an intelligent digital healthcare platform providing AI lab report analysis, symptom triage, medicine info, and secure patient health records." />
     <meta name="keywords" content="AI healthcare platform, healthcare AI, digital health platform, AI health assistant, lab report analysis, symptom checker, medicine information" />

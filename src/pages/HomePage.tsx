@@ -503,7 +503,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           muted
           loop
           playsInline
-          preload="auto"
+          preload="metadata"
           aria-hidden="true"
           className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none"
           style={{ objectFit: 'cover', width: '100%', height: '100%' }}

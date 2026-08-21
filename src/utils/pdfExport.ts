@@ -1,5 +1,3 @@
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import {
   Prescription,
   LabReportAnalysis,
@@ -12,8 +10,18 @@ import {
   PatientAiSummary
 } from '../types.js';
 
-export function downloadPrescriptionPDF(prescription: Prescription): void {
+// Lazy loader for PDF engines
+async function getPdfEngine() {
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable')
+  ]);
   const doc = new jsPDF();
+  return { doc, autoTable };
+}
+
+export async function downloadPrescriptionPDF(prescription: Prescription): Promise<void> {
+  const { doc, autoTable } = await getPdfEngine();
 
   // Header Banner
   doc.setFillColor(30, 64, 175); // Dark blue
@@ -146,8 +154,8 @@ export function downloadPrescriptionPDF(prescription: Prescription): void {
   doc.save(`Prescription_${prescription.prescriptionNumber}_${prescription.patientName.replace(/\s+/g, '_')}.pdf`);
 }
 
-export function downloadReportPDF(report: LabReportAnalysis): void {
-  const doc = new jsPDF();
+export async function downloadReportPDF(report: LabReportAnalysis): Promise<void> {
+  const { doc, autoTable } = await getPdfEngine();
 
   // Header
   doc.setFillColor(30, 64, 175);
@@ -251,14 +259,14 @@ export function downloadReportPDF(report: LabReportAnalysis): void {
   doc.save(`LabReport_${report.fileName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
 }
 
-export function downloadHealthSummaryPDF(
+export async function downloadHealthSummaryPDF(
   user: User,
   reports: LabReportAnalysis[],
   prescriptions: Prescription[],
   notes: ClinicalNote[],
   bmiRecords: BmiRecord[]
-): void {
-  const doc = new jsPDF();
+): Promise<void> {
+  const { doc, autoTable } = await getPdfEngine();
 
   // Header
   doc.setFillColor(30, 64, 175);
@@ -399,8 +407,8 @@ export function downloadHealthSummaryPDF(
   doc.save(`Health_Summary_${user.name.replace(/\s+/g, '_')}_${user.patientId || 'Record'}.pdf`);
 }
 
-export function downloadReportComparisonPDF(comparison: ReportComparisonResult): void {
-  const doc = new jsPDF();
+export async function downloadReportComparisonPDF(comparison: ReportComparisonResult): Promise<void> {
+  const { doc, autoTable } = await getPdfEngine();
 
   // Header
   doc.setFillColor(30, 64, 175);
@@ -467,8 +475,8 @@ export function downloadReportComparisonPDF(comparison: ReportComparisonResult):
 }
 
 // 5. Download Official Hospital Discharge Summary PDF
-export function downloadPatientDischargeSummaryPDF(patient: LivePatientRecord, discharge: PatientDischargeSummary): void {
-  const doc = new jsPDF();
+export async function downloadPatientDischargeSummaryPDF(patient: LivePatientRecord, discharge: PatientDischargeSummary): Promise<void> {
+  const { doc, autoTable } = await getPdfEngine();
 
   // Header Banner
   doc.setFillColor(15, 23, 42); // Deep slate/blue
@@ -638,8 +646,8 @@ export function downloadPatientDischargeSummaryPDF(patient: LivePatientRecord, d
 }
 
 // 6. Download Synthesized Clinical Medical Summary PDF
-export function downloadPatientMedicalSummaryPDF(patient: LivePatientRecord, summary: PatientAiSummary): void {
-  const doc = new jsPDF();
+export async function downloadPatientMedicalSummaryPDF(patient: LivePatientRecord, summary: PatientAiSummary): Promise<void> {
+  const { doc, autoTable } = await getPdfEngine();
 
   // Header Banner
   doc.setFillColor(30, 58, 138); // Blue

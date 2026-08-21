@@ -1,23 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AuthProvider } from './context/AuthContext.js';
 import { Navbar } from './components/Navbar.js';
 import { Footer } from './components/Footer.js';
 import { HomePage } from './pages/HomePage.js';
-import { LabReportPage } from './pages/LabReportPage.js';
-import { SymptomCheckerPage } from './pages/SymptomCheckerPage.js';
-import { MedicineInfoPage } from './pages/MedicineInfoPage.js';
-import { BmiCalculatorPage } from './pages/BmiCalculatorPage.js';
-import { AppointmentPage } from './pages/AppointmentPage.js';
-import { HealthChatPage } from './pages/HealthChatPage.js';
-import { ProfilePage } from './pages/ProfilePage.js';
-import { PatientDashboard } from './pages/PatientDashboard.js';
-import { DoctorDashboard } from './pages/DoctorDashboard.js';
-import { LivePatientRecordPage } from './pages/LivePatientRecordPage.js';
-import { AboutPage } from './pages/AboutPage.js';
-import { ContactPage } from './pages/ContactPage.js';
-import { LoginPage, SignUpPage, ForgotPasswordPage } from './pages/AuthPages.js';
 import { MessageSquare } from 'lucide-react';
 import { useAuth } from './context/AuthContext.js';
+
+// Code-split route components to prevent unused JavaScript and heavy initial payloads
+const LabReportPage = lazy(() => import('./pages/LabReportPage.js').then(m => ({ default: m.LabReportPage })));
+const SymptomCheckerPage = lazy(() => import('./pages/SymptomCheckerPage.js').then(m => ({ default: m.SymptomCheckerPage })));
+const MedicineInfoPage = lazy(() => import('./pages/MedicineInfoPage.js').then(m => ({ default: m.MedicineInfoPage })));
+const BmiCalculatorPage = lazy(() => import('./pages/BmiCalculatorPage.js').then(m => ({ default: m.BmiCalculatorPage })));
+const AppointmentPage = lazy(() => import('./pages/AppointmentPage.js').then(m => ({ default: m.AppointmentPage })));
+const HealthChatPage = lazy(() => import('./pages/HealthChatPage.js').then(m => ({ default: m.HealthChatPage })));
+const PatientDashboard = lazy(() => import('./pages/PatientDashboard.js').then(m => ({ default: m.PatientDashboard })));
+const DoctorDashboard = lazy(() => import('./pages/DoctorDashboard.js').then(m => ({ default: m.DoctorDashboard })));
+const LivePatientRecordPage = lazy(() => import('./pages/LivePatientRecordPage.js').then(m => ({ default: m.LivePatientRecordPage })));
+const AboutPage = lazy(() => import('./pages/AboutPage.js').then(m => ({ default: m.AboutPage })));
+const ContactPage = lazy(() => import('./pages/ContactPage.js').then(m => ({ default: m.ContactPage })));
+const LoginPage = lazy(() => import('./pages/AuthPages.js').then(m => ({ default: m.LoginPage })));
+const SignUpPage = lazy(() => import('./pages/AuthPages.js').then(m => ({ default: m.SignUpPage })));
+const ForgotPasswordPage = lazy(() => import('./pages/AuthPages.js').then(m => ({ default: m.ForgotPasswordPage })));
+
+const PageLoadingFallback: React.FC = () => (
+  <div className="min-h-[60vh] flex flex-col items-center justify-center p-8 space-y-3">
+    <div className="w-9 h-9 border-3 border-blue-600 border-t-transparent rounded-full animate-spin" />
+    <span className="text-xs font-medium text-slate-500 tracking-wide uppercase">Loading MediVerse...</span>
+  </div>
+);
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<string>(() => {
@@ -102,7 +112,9 @@ function AppContent() {
       <Navbar currentPage={currentPage} onNavigate={handleNavigate} />
 
       <main className="flex-1">
-        {renderPage()}
+        <Suspense fallback={<PageLoadingFallback />}>
+          {renderPage()}
+        </Suspense>
       </main>
 
       {/* Floating Quick Action for AI Chat (when not on AI Chat page) */}
