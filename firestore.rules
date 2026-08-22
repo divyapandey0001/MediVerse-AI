@@ -11,43 +11,59 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // User profiles: Only the authenticated user can read & update their profile
+    function isDoctor() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'doctor';
+    }
+
+    // User profiles: Authenticated owner can read/write their own profile without privilege escalation
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read: if isOwner(userId) || isDoctor();
+      allow create: if isOwner(userId) && 
+        (!request.resource.data.keys().hasAny(['role']) || request.resource.data.role in ['patient', 'pending_doctor']);
+      allow update: if isOwner(userId) && 
+        // Prevent client from escalating role to 'doctor' or 'admin', or tampering with verification/subscription flags
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'verificationStatus', 'subscription', 'dailyUsage']) || 
+         resource.data.role == request.resource.data.role ||
+         request.resource.data.role in ['pending_doctor', 'patient']);
+      allow delete: if isOwner(userId);
       
       // Patient's lab reports & health records subcollection
       match /reports/{reportId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId) || isDoctor();
+        allow write: if isOwner(userId);
       }
       
-      // Patient's prescriptions
+      // Patient's prescriptions: readable by patient or doctor, writable by doctor only
       match /prescriptions/{prescriptionId} {
-        allow read: if isOwner(userId);
-        allow write: if isAuthenticated();
+        allow read: if isOwner(userId) || isDoctor();
+        allow write: if isDoctor();
       }
       
       // Patient's BMI history
       match /bmi/{bmiId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId) || isDoctor();
+        allow write: if isOwner(userId);
       }
 
-      // User's Subscription & Plan metadata
+      // User's Subscription & Plan metadata (read-only to clients; written exclusively by server backend)
       match /subscription/{subId} {
         allow read: if isOwner(userId);
-        allow write: if isOwner(userId);
+        allow write: if false; // Server-authoritative only
       }
 
-      // User's Daily Usage & Quotas
+      // User's Daily Usage & Quotas (read-only to clients; managed server-side)
       match /usage/{dateKey} {
         allow read: if isOwner(userId);
-        allow write: if isOwner(userId);
+        allow write: if false; // Server-authoritative only
       }
     }
 
-    // Doctors collection: Publicly readable for directory, editable only by verified doctor
+    // Doctors collection: Publicly readable for directory, editable only by verified doctor for their own profile
     match /doctors/{doctorId} {
       allow read: if true;
-      allow write: if isAuthenticated() && request.auth.uid == doctorId;
+      allow write: if isDoctor() && request.auth.uid == doctorId;
     }
 
     // Public Patient Reviews & Feedback
@@ -68,3 +84,4 @@ service cloud.firestore {
     }
   }
 }
+

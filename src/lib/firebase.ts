@@ -118,6 +118,52 @@ export async function sendFirebasePasswordReset(email: string) {
 }
 
 /**
+ * Send email verification to Firebase user
+ */
+export async function sendFirebaseVerificationEmail(customUser?: any) {
+  try {
+    const authInstance = await getFirebaseAuth();
+    const userToVerify = customUser || authInstance.currentUser;
+    if (!userToVerify) {
+      throw new Error('No authenticated Firebase user found to send verification email.');
+    }
+    const { sendEmailVerification } = await import('firebase/auth');
+    await sendEmailVerification(userToVerify);
+    return { success: true };
+  } catch (error: any) {
+    console.error('Firebase sendEmailVerification error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Reload current Firebase user and check emailVerified status
+ */
+export async function checkFirebaseEmailVerified(): Promise<boolean> {
+  try {
+    const authInstance = await getFirebaseAuth();
+    if (!authInstance.currentUser) {
+      return false;
+    }
+    // Reload user profile from Firebase servers to fetch fresh emailVerified flag
+    await authInstance.currentUser.reload();
+    return Boolean(authInstance.currentUser.emailVerified);
+  } catch (error: any) {
+    console.warn('Firebase check email verified error:', error);
+    return false;
+  }
+}
+
+/**
+ * Apply email verification action code if user landed from email link
+ */
+export async function applyFirebaseActionCode(actionCode: string) {
+  const authInstance = await getFirebaseAuth();
+  const { applyActionCode } = await import('firebase/auth');
+  return await applyActionCode(authInstance, actionCode);
+}
+
+/**
  * Logout from Firebase
  */
 export async function logoutFirebase() {
@@ -164,6 +210,24 @@ export async function saveReportToFirestore(userId: string, reportData: Record<s
     }, { merge: true });
   } catch (err) {
     console.warn('Could not save report to Firestore:', err);
+  }
+}
+
+/**
+ * Save / sync subscription and usage details to Firestore
+ */
+export async function syncSubscriptionToFirestore(userId: string, subscription: any, usageStatus?: any) {
+  try {
+    const dbInstance = await getFirebaseFirestore();
+    const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
+    const subDocRef = doc(dbInstance, 'users', userId);
+    await setDoc(subDocRef, {
+      subscription,
+      usageStatus: usageStatus || null,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  } catch (err) {
+    console.warn('Could not sync subscription to Firestore:', err);
   }
 }
 

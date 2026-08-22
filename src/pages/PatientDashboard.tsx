@@ -28,13 +28,17 @@ import {
   Heart,
   CalendarDays,
   FileCheck,
-  HeartPulse
+  HeartPulse,
+  Crown,
+  Zap,
+  Sparkles
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.js';
 import { LabReportAnalysis, Prescription, ClinicalNote, Appointment, BmiRecord, AuditLog, ReportComparisonResult } from '../types.js';
 import { downloadPrescriptionPDF, downloadReportPDF, downloadHealthSummaryPDF, downloadReportComparisonPDF } from '../utils/pdfExport.js';
 import { SEOHead } from '../components/SEOHead.js';
 import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
+import { SubscriptionModal } from '../components/SubscriptionModal.js';
 
 interface PatientDashboardProps {
   onNavigate: (page: string) => void;
@@ -68,6 +72,7 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ onNavigate }
 
   // Selected prescription modal / view
   const [selectedPrescription, setSelectedPrescription] = useState<Prescription | null>(null);
+  const [showSubModal, setShowSubModal] = useState<boolean>(false);
 
   const fetchDashboardData = async () => {
     if (!token) return;
@@ -245,6 +250,44 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ onNavigate }
     }))
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
+  if (!token || !user) {
+    return (
+      <div id="patient-auth-required" className="min-h-[80vh] flex items-center justify-center bg-slate-50 py-12 px-4 sm:px-6">
+        <SEOHead
+          title="Patient Portal Sign In Required | MediVerse"
+          description="Authentication required to view confidential patient medical records."
+          canonicalPath="/patient-dashboard"
+          noIndex={true}
+        />
+        <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-slate-200 shadow-sm text-center space-y-6">
+          <div className="w-16 h-16 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center mx-auto">
+            <UserIcon className="w-8 h-8" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold text-slate-900">My Health Records</h1>
+            <p className="text-sm text-slate-600">
+              Sign in to your private MediVerse account to securely access your diagnostic lab reports, clinical notes, e-prescriptions, and health timeline.
+            </p>
+          </div>
+          <div className="space-y-3 pt-2">
+            <button
+              onClick={() => onNavigate('login')}
+              className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+            >
+              Sign In to Patient Portal
+            </button>
+            <button
+              onClick={() => onNavigate('signup')}
+              className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-sm transition-all cursor-pointer"
+            >
+              Create New Patient Account
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div id="patient-dashboard-container" className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
       <SEOHead
@@ -350,6 +393,81 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ onNavigate }
             </div>
           </div>
         </div>
+
+        {/* Subscription & 14-Day Free Trial Status Banner */}
+        <div className={`rounded-3xl p-5 sm:p-6 border shadow-xs transition-all ${
+          user?.subscription?.plan === 'premium'
+            ? 'bg-gradient-to-r from-blue-900 to-indigo-900 text-white border-blue-800'
+            : user?.subscription?.plan === 'trial'
+            ? 'bg-gradient-to-r from-blue-50 via-indigo-50 to-amber-50/40 border-blue-200/80 text-slate-800'
+            : 'bg-amber-50/70 border-amber-200 text-slate-800'
+        }`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start sm:items-center gap-3.5">
+              <div className={`p-3 rounded-2xl shrink-0 ${
+                user?.subscription?.plan === 'premium'
+                  ? 'bg-amber-400 text-slate-900 shadow-md shadow-amber-400/30'
+                  : user?.subscription?.plan === 'trial'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                  : 'bg-amber-600 text-white'
+              }`}>
+                <Crown className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                    user?.subscription?.plan === 'premium'
+                      ? 'bg-amber-400/20 text-amber-300 border border-amber-400/30'
+                      : user?.subscription?.plan === 'trial'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-amber-200 text-amber-900'
+                  }`}>
+                    {user?.subscription?.plan === 'premium'
+                      ? 'MediVerse Premium'
+                      : user?.subscription?.plan === 'trial'
+                      ? '14-Day Free Trial'
+                      : 'Free Limited Plan'}
+                  </span>
+                  {user?.subscription?.plan === 'trial' && (
+                    <span className="text-xs font-bold text-blue-700 bg-blue-100/80 px-2.5 py-0.5 rounded-full">
+                      {user?.subscription?.trialDaysRemaining ?? 14} days remaining
+                    </span>
+                  )}
+                </div>
+                <p className={`text-xs sm:text-sm mt-1 leading-relaxed ${
+                  user?.subscription?.plan === 'premium'
+                    ? 'text-blue-100'
+                    : 'text-slate-600'
+                }`}>
+                  {user?.subscription?.plan === 'premium'
+                    ? 'All daily rate limits lifted. Full access to AI diagnostics, report comparisons, and medical summaries.'
+                    : user?.subscription?.plan === 'trial'
+                    ? 'You have automatic 14-day full premium access. After 14 days, you will automatically transition to the Free Limited Plan.'
+                    : 'Your 14-day trial has completed. You are on the Free Limited Plan with daily quotas.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setShowSubModal(true)}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                  user?.subscription?.plan === 'premium'
+                    ? 'bg-white/20 hover:bg-white/30 text-white border border-white/30'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm shadow-blue-600/20'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>
+                  {user?.subscription?.plan === 'premium'
+                    ? 'Manage Subscription'
+                    : 'View Quotas & Upgrade'}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+
 
         {/* Navigation Tabs (Strict 6 Sub-features inside My Health Records) */}
         <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
@@ -1534,6 +1652,12 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ onNavigate }
           </div>
         </div>
       )}
+
+      {/* Subscription & Quota Upgrade Modal */}
+      <SubscriptionModal
+        isOpen={showSubModal}
+        onClose={() => setShowSubModal(false)}
+      />
     </div>
   );
 };

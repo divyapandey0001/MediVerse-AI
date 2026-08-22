@@ -13,7 +13,8 @@ import {
   Clock,
   HeartPulse,
   Activity,
-  Printer
+  Printer,
+  Mic
 } from 'lucide-react';
 import { LivePatientRecord } from '../../types.js';
 
@@ -24,6 +25,7 @@ interface PatientHeaderProps {
   onOpenSummaryModal: () => void;
   onOpenPrescriptionModal: () => void;
   onOpenProfileTab: () => void;
+  onOpenConsultationTab?: () => void;
 }
 
 export const PatientHeader: React.FC<PatientHeaderProps> = ({
@@ -32,7 +34,8 @@ export const PatientHeader: React.FC<PatientHeaderProps> = ({
   onOpenDischargeModal,
   onOpenSummaryModal,
   onOpenPrescriptionModal,
-  onOpenProfileTab
+  onOpenProfileTab,
+  onOpenConsultationTab
 }) => {
   const isAdmitted = patient.status === 'Admitted';
   const latestVital = patient.vitals?.[0];
@@ -54,6 +57,16 @@ export const PatientHeader: React.FC<PatientHeaderProps> = ({
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+          {onOpenConsultationTab && (
+            <button
+              onClick={onOpenConsultationTab}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs shadow-sm transition-all hover:scale-[1.02]"
+            >
+              <Mic className="w-4 h-4 text-white animate-pulse" />
+              <span>Start Consultation</span>
+            </button>
+          )}
+
           <button
             onClick={onOpenPrescriptionModal}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs border border-indigo-200/80 transition-all shadow-xs"

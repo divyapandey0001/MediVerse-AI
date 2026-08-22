@@ -5,10 +5,19 @@ service firebase.storage {
     function isAuthenticated() {
       return request.auth != null;
     }
+
+    function isValidMedicalDocument() {
+      return request.resource.size < 15 * 1024 * 1024
+        && (request.resource.contentType.matches('application/pdf')
+            || request.resource.contentType.matches('image/jpeg')
+            || request.resource.contentType.matches('image/png')
+            || request.resource.contentType.matches('image/webp'));
+    }
     
     // Patient medical records and reports: strictly private to user
     match /medical-records/{userId}/{allPaths=**} {
-      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow write: if isAuthenticated() && request.auth.uid == userId && isValidMedicalDocument();
     }
     
     // Default deny for unauthenticated or other arbitrary paths

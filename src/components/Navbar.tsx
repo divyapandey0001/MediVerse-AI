@@ -25,6 +25,15 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
   const [showToolsSubmenu, setShowToolsSubmenu] = useState(false);
   const { user, logout } = useAuth();
 
+  const handleLogout = async () => {
+    setMobileMenuOpen(false);
+    await logout();
+    onNavigate('home');
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({ page: 'home' }, '', '/');
+    }
+  };
+
   const handleNav = (target: string) => {
     setMobileMenuOpen(false);
     setShowToolsSubmenu(false);
@@ -168,7 +177,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
                 </button>
                 <button
                   id="nav-logout-btn"
-                  onClick={logout}
+                  onClick={handleLogout}
                   title="Log out"
                   className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
                 >
@@ -288,10 +297,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
                 </button>
                 <button
                   id="mobile-drawer-logout"
-                  onClick={() => {
-                    logout();
-                    setMobileMenuOpen(false);
-                  }}
+                  onClick={handleLogout}
                   className="w-full py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 font-medium text-center hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer"
                 >
                   Log Out

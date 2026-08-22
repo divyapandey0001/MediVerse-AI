@@ -10,11 +10,15 @@ import {
   lookupMedicineInfo,
   analyzeMedicalDocument,
   generatePatientAiClinicalSummary,
-  generateDischargeSummary
+  generateDischargeSummary,
+  refineConsultationTranscript,
+  generateClinicalConsultationNote,
+  generateGeminiSpeechAudio
 } from './gemini.js';
 import {
   User,
   UserRole,
+  UserSubscription,
   Appointment,
   BmiRecord,
   LabReportAnalysis,
@@ -36,13 +40,130 @@ import {
   PatientTimelineItem,
   PatientAiSummary,
   PatientDischargeSummary,
-  PatientStatus
+  PatientStatus,
+  PatientConsultation,
+  ConsultationClinicalNoteDraft,
+  ApprovedConsultationNote,
+  ConsultationSpeakerUtterance
 } from '../src/types.js';
+import {
+  getUserSubscription,
+  getUserUsageStatus,
+  checkAndIncrementUsage,
+  createRazorpayOrder,
+  verifyRazorpaySignature,
+  activatePremiumSubscription,
+  PLAN_LIMITS
+} from './subscriptionService.js';
 
 dotenv.config();
 
 export function createApp() {
   const app = express();
+
+  // 1. Security Headers Middleware (Enforces CSP, MIME protection, frame isolation & cache protection)
+  app.use((req: Request, res: Response, next: express.NextFunction) => {
+    // Security and browser protection headers
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(self), geolocation=()');
+
+    // Sensitive API Cache Protection
+    if (req.path.startsWith('/api/')) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+
+    next();
+  });
+
+  // 2. Sliding-Window Rate Limiting Store
+  interface RateLimitRecord {
+    timestamps: number[];
+  }
+  const rateLimitStore = new Map<string, RateLimitRecord>();
+
+  // Cleanup stale rate-limit trackers periodically
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, record] of rateLimitStore.entries()) {
+      record.timestamps = record.timestamps.filter(t => now - t < 60000);
+      if (record.timestamps.length === 0) {
+        rateLimitStore.delete(key);
+      }
+    }
+  }, 300000);
+
+  function rateLimiter(limit: number, windowMs = 60000, prefix = 'general') {
+    return (req: Request, res: Response, next: express.NextFunction) => {
+      const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1';
+      const key = `${prefix}:${ip}`;
+      const now = Date.now();
+      let record = rateLimitStore.get(key);
+      if (!record) {
+        record = { timestamps: [] };
+        rateLimitStore.set(key, record);
+      }
+      record.timestamps = record.timestamps.filter(t => now - t < windowMs);
+      if (record.timestamps.length >= limit) {
+        return res.status(429).json({
+          error: 'Too many requests. For patient safety and system security, please slow down and retry in a moment.',
+          retryAfterSeconds: Math.ceil((windowMs - (now - record.timestamps[0])) / 1000)
+        });
+      }
+      record.timestamps.push(now);
+      next();
+    };
+  }
+
+  // 3. Document / File Upload Magic Byte & Size Inspector
+  function validateMedicalFile(base64Data: string, mimeType: string, fileName: string): { valid: boolean; error?: string; cleanFileName?: string } {
+    if (!base64Data || typeof base64Data !== 'string') {
+      return { valid: false, error: 'File data is required.' };
+    }
+    
+    // Sanitize fileName to prevent directory traversal and null byte injection
+    const cleanFileName = fileName.replace(/[\/\\]|\.\.|\x00/g, '_').trim().slice(0, 150);
+    if (!cleanFileName) {
+      return { valid: false, error: 'Invalid file name.' };
+    }
+
+    // Extract raw base64
+    let raw = base64Data;
+    if (raw.includes(',')) {
+      raw = raw.split(',')[1];
+    }
+
+    // Check file size (max 15MB)
+    const approxSize = Math.floor((raw.length * 3) / 4);
+    const MAX_SIZE = 15 * 1024 * 1024;
+    if (approxSize > MAX_SIZE) {
+      return { valid: false, error: 'File size exceeds maximum allowed limit of 15MB.' };
+    }
+
+    try {
+      const buffer = Buffer.from(raw.slice(0, 64), 'base64');
+      if (buffer.length < 4) {
+        return { valid: false, error: 'Uploaded file appears empty or corrupted.' };
+      }
+
+      // Check magic numbers
+      const isPdf = buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46; // %PDF
+      const isJpeg = buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF; // JPEG
+      const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47; // PNG
+      const isWebp = buffer.slice(0, 4).toString('ascii') === 'RIFF'; // WEBP
+
+      if (!isPdf && !isJpeg && !isPng && !isWebp) {
+        return { valid: false, error: 'Invalid file format. Only verified PDF, JPG, PNG, and WebP diagnostic files are accepted.' };
+      }
+
+      return { valid: true, cleanFileName };
+    } catch {
+      return { valid: false, error: 'Failed to inspect document format.' };
+    }
+  }
 
   // Allow up to 50MB for PDF and high-res image report uploads
   app.use(express.json({ limit: '50mb' }));
@@ -84,6 +205,82 @@ export function createApp() {
   function authenticate(req: Request): string | null {
     const user = authenticateUser(req);
     return user ? user.id : null;
+  }
+
+  function authenticateVerifiedUser(req: Request): { user: User | null; error?: string; status?: number; emailVerificationRequired?: boolean } {
+    const user = authenticateUser(req);
+    if (!user) {
+      return { user: null, error: 'Unauthorized: Please log in to access this feature.', status: 401 };
+    }
+    if (user.emailVerified === false) {
+      return {
+        user,
+        error: 'Please verify your email address to continue. Check your inbox for the verification email.',
+        status: 403,
+        emailVerificationRequired: true
+      };
+    }
+    return { user };
+  }
+
+  function authenticateDoctor(req: Request): { user: User | null; error?: string; status?: number; emailVerificationRequired?: boolean } {
+    const user = authenticateUser(req);
+    if (!user) {
+      return { user: null, error: 'Unauthorized: Please log in to access this feature.', status: 401 };
+    }
+    if (user.emailVerified === false) {
+      return {
+        user,
+        error: 'Please verify your doctor account email address to continue.',
+        status: 403,
+        emailVerificationRequired: true
+      };
+    }
+    if (user.role === 'pending_doctor') {
+      return {
+        user,
+        error: 'Your doctor account is pending medical board verification. Access to patient records and clinical tools is restricted until verification is complete.',
+        status: 403
+      };
+    }
+    if (user.role !== 'doctor' && user.role !== 'admin') {
+      return {
+        user,
+        error: 'Forbidden: Access to this clinical portal is restricted to authorized medical doctors only.',
+        status: 403
+      };
+    }
+    return { user };
+  }
+
+  function authenticateAdmin(req: Request): { user: User | null; error?: string; status?: number } {
+    const user = authenticateUser(req);
+    if (!user) {
+      return { user: null, error: 'Unauthorized: Administrative authentication required.', status: 401 };
+    }
+    if (user.role !== 'admin') {
+      return { user: null, error: 'Forbidden: Medical Board Administrator access required.', status: 403 };
+    }
+    return { user };
+  }
+
+  function validatePassword(pass: string): { valid: boolean; error?: string } {
+    if (!pass || pass.length < 8) {
+      return { valid: false, error: 'Password must be at least 8 characters long.' };
+    }
+    if (!/[A-Z]/.test(pass)) {
+      return { valid: false, error: 'Password must contain at least one uppercase letter (A-Z).' };
+    }
+    if (!/[a-z]/.test(pass)) {
+      return { valid: false, error: 'Password must contain at least one lowercase letter (a-z).' };
+    }
+    if (!/[0-9]/.test(pass)) {
+      return { valid: false, error: 'Password must contain at least one numeric digit (0-9).' };
+    }
+    if (!/[^A-Za-z0-9]/.test(pass)) {
+      return { valid: false, error: 'Password must contain at least one special character (!@#$%^&* etc).' };
+    }
+    return { valid: true };
   }
 
   // --- Health & Diagnostic Routes ---
@@ -239,7 +436,7 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   app.get('/api/robots.txt', handleRobots);
 
   // 1. Authentication Endpoints
-  app.post('/api/auth/signup', (req: Request, res: Response) => {
+  app.post('/api/auth/signup', rateLimiter(10, 60000, 'auth_signup'), (req: Request, res: Response) => {
     try {
       const {
         name,
@@ -264,16 +461,41 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
         return res.status(400).json({ error: 'Name, email, and password are required.' });
       }
 
+      // Password policy validation: min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special char
+      const passValidation = validatePassword(password);
+      if (!passValidation.valid) {
+        return res.status(400).json({ error: passValidation.error });
+      }
+
       const normalizedEmail = email.trim().toLowerCase();
-      const userRole: UserRole = role === 'doctor' ? 'doctor' : 'patient';
+      // Security Enforcement: Any doctor registration is marked 'pending_doctor' until verified
+      const isDoctorSignup = role === 'doctor' || role === 'pending_doctor';
+      const userRole: UserRole = isDoctorSignup ? 'pending_doctor' : 'patient';
       const data = db.get();
 
       if (data.users.some(u => u.email === normalizedEmail)) {
-        return res.status(409).json({ error: 'An account with this email already exists.' });
+        return res.status(409).json({ error: 'An account with this email already exists. Please log in.' });
+      }
+
+      if (isDoctorSignup && (!licenseNumber || !licenseNumber.trim())) {
+        return res.status(400).json({ error: 'Medical license or registration number is required for doctor registration.' });
       }
 
       const userId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       const patientId = userRole === 'patient' ? db.generatePatientId() : undefined;
+
+      const now = new Date();
+      const trialStartDate = now.toISOString();
+      const trialEndDate = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+      const initialSubscription: UserSubscription = {
+        plan: 'trial',
+        status: 'trialing',
+        trialStartDate,
+        trialEndDate,
+        trialDaysRemaining: 14,
+        isTrialActive: true,
+        updatedAt: trialStartDate
+      };
 
       const newUser: User & { passwordHash: string } = {
         id: userId,
@@ -288,46 +510,52 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
         bloodGroup: bloodGroup ? bloodGroup.trim() : undefined,
         allergies: allergies ? allergies.trim() : undefined,
         emergencyContact: emergencyContact ? emergencyContact.trim() : undefined,
-        specialty: userRole === 'doctor' ? (specialty ? specialty.trim() : 'General Medicine') : undefined,
-        qualification: userRole === 'doctor' ? (qualification ? qualification.trim() : 'MD') : undefined,
-        department: userRole === 'doctor' ? (department ? department.trim() : 'General Practice') : undefined,
-        licenseNumber: userRole === 'doctor' ? (licenseNumber ? licenseNumber.trim() : `MED-${Math.floor(100000 + Math.random() * 900000)}`) : undefined,
-        hospitalAffiliation: userRole === 'doctor' ? (hospitalAffiliation ? hospitalAffiliation.trim() : 'MediVerse Healthcare Network') : undefined,
-        createdAt: new Date().toISOString(),
+        specialty: isDoctorSignup ? (specialty ? specialty.trim() : 'General Medicine') : undefined,
+        qualification: isDoctorSignup ? (qualification ? qualification.trim() : 'MD') : undefined,
+        department: isDoctorSignup ? (department ? department.trim() : 'General Practice') : undefined,
+        licenseNumber: isDoctorSignup ? licenseNumber.trim() : undefined,
+        hospitalAffiliation: isDoctorSignup ? (hospitalAffiliation ? hospitalAffiliation.trim() : 'MediVerse Healthcare Network') : undefined,
+        verificationStatus: isDoctorSignup ? 'pending' : undefined,
+        verificationSubmittedAt: isDoctorSignup ? new Date().toISOString() : undefined,
+        verificationNotes: isDoctorSignup ? 'Medical license and credentials submitted. Pending clinical review.' : undefined,
+        emailVerified: false,
+        emailVerificationSentAt: new Date().toISOString(),
+        subscription: initialSubscription,
+        createdAt: now.toISOString(),
         passwordHash: db.hashPassword(password)
       };
 
       data.users.push(newUser);
-
-      // If registered as doctor, also ensure entry in doctors list for appointment booking
-      if (userRole === 'doctor') {
-        const existingDoc = data.doctors.find(d => d.name.toLowerCase() === newUser.name.toLowerCase());
-        if (!existingDoc) {
-          data.doctors.push({
-            id: `doc_${userId}`,
-            name: newUser.name.startsWith('Dr.') ? newUser.name : `Dr. ${newUser.name}`,
-            specialty: newUser.specialty || 'General Medicine',
-            qualification: newUser.qualification || 'MD',
-            department: newUser.department || 'General Practice',
-            experience: '8+ years',
-            availableDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-          });
-        }
-      }
-
       db.save(data);
+
+      db.logAudit({
+        userId,
+        userName: newUser.name,
+        role: userRole,
+        action: 'ACCOUNT_CREATED',
+        details: isDoctorSignup
+          ? `Doctor registered with license ${newUser.licenseNumber} (Status: Pending Verification, 14-Day Premium Trial Started)`
+          : `Patient account created (${patientId}, 14-Day Premium Trial Started)`
+      });
 
       const token = db.generateToken(userId);
       const { passwordHash: _, ...safeUser } = newUser;
+      safeUser.subscription = getUserSubscription(newUser);
 
-      res.status(201).json({ user: safeUser, token });
+      res.status(201).json({
+        user: safeUser,
+        token,
+        message: isDoctorSignup
+          ? 'Doctor account created with 14-day free trial. Your clinical credentials have been submitted for review.'
+          : 'Patient account created successfully with 14-day free trial.'
+      });
     } catch (err: any) {
       console.error('Signup error:', err);
       res.status(500).json({ error: 'Failed to create account.' });
     }
   });
 
-  app.post('/api/auth/login', (req: Request, res: Response) => {
+  app.post('/api/auth/login', rateLimiter(10, 60000, 'auth_login'), (req: Request, res: Response) => {
     try {
       const { email, password } = req.body;
       if (!email || !password) {
@@ -338,8 +566,20 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
       const data = db.get();
       const user = data.users.find(u => u.email === normalizedEmail);
 
-      if (!user || user.passwordHash !== db.hashPassword(password)) {
+      if (!user || !db.verifyPassword(password, user.passwordHash)) {
+        db.logAudit({
+          userId: user?.id || 'unknown',
+          userName: normalizedEmail,
+          role: (user?.role || 'patient') as any,
+          action: 'LOGIN_FAILED' as any,
+          details: `Failed login attempt for ${normalizedEmail}`
+        });
         return res.status(401).json({ error: 'Invalid email or password.' });
+      }
+
+      // Upgrade legacy password hash to salted PBKDF2 on successful login
+      if (!user.passwordHash.startsWith('pbkdf2$')) {
+        user.passwordHash = db.hashPassword(password);
       }
 
       if (!user.role) {
@@ -347,11 +587,23 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
       }
       if (user.role === 'patient' && !user.patientId) {
         user.patientId = db.generatePatientId();
-        db.save(data);
       }
+
+      // Ensure user subscription status is calculated & saved
+      user.subscription = getUserSubscription(user);
+      db.save(data);
 
       const token = db.generateToken(user.id);
       const { passwordHash: _, ...safeUser } = user;
+      safeUser.subscription = user.subscription;
+
+      db.logAudit({
+        userId: user.id,
+        userName: user.name,
+        role: user.role,
+        action: 'LOGIN_SUCCESS' as any,
+        details: `User ${user.name} (${user.role}) logged in successfully.`
+      });
 
       res.json({ user: safeUser, token });
     } catch (err: any) {
@@ -360,8 +612,32 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
     }
   });
 
+  // Session Logout & Token Revocation Endpoint
+  app.post('/api/auth/logout', (req: Request, res: Response) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        db.revokeToken(token);
+      }
+      const user = authenticateUser(req);
+      if (user) {
+        db.logAudit({
+          userId: user.id,
+          userName: user.name,
+          role: user.role,
+          action: 'LOGOUT' as any,
+          details: `User ${user.name} logged out. Token revoked.`
+        });
+      }
+      res.json({ success: true, message: 'Logged out successfully. Session revoked.' });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Logout failed.' });
+    }
+  });
+
   // Firebase Google Sign-In backend verification & account synchronization
-  app.post('/api/auth/firebase-google', (req: Request, res: Response) => {
+  app.post('/api/auth/firebase-google', rateLimiter(15, 60000, 'auth_google'), (req: Request, res: Response) => {
     try {
       const { email, name, role = 'patient', firebaseUid } = req.body;
       if (!email) {
@@ -369,15 +645,29 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
       }
 
       const normalizedEmail = email.trim().toLowerCase();
-      const userRole: UserRole = role === 'doctor' ? 'doctor' : 'patient';
       const data = db.get();
 
       let user = data.users.find(u => u.email === normalizedEmail);
 
       if (!user) {
-        // Create new user linked with Firebase
+        // Create new user linked with Firebase. If doctor selected, set role to pending_doctor!
+        const isDoctorSignup = role === 'doctor' || role === 'pending_doctor';
+        const userRole: UserRole = isDoctorSignup ? 'pending_doctor' : 'patient';
         const userId = firebaseUid ? `fb_${firebaseUid}` : `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
         const patientId = userRole === 'patient' ? db.generatePatientId() : undefined;
+
+        const now = new Date();
+        const trialStartDate = now.toISOString();
+        const trialEndDate = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+        const initialSubscription: UserSubscription = {
+          plan: 'trial',
+          status: 'trialing',
+          trialStartDate,
+          trialEndDate,
+          trialDaysRemaining: 14,
+          isTrialActive: true,
+          updatedAt: trialStartDate
+        };
 
         const newUser: User & { passwordHash: string } = {
           id: userId,
@@ -385,43 +675,34 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
           email: normalizedEmail,
           role: userRole,
           patientId,
-          specialty: userRole === 'doctor' ? 'General Medicine' : undefined,
-          qualification: userRole === 'doctor' ? 'MD' : undefined,
-          department: userRole === 'doctor' ? 'General Practice' : undefined,
-          licenseNumber: userRole === 'doctor' ? `MED-${Math.floor(100000 + Math.random() * 900000)}` : undefined,
-          hospitalAffiliation: userRole === 'doctor' ? 'MediVerse Healthcare Network' : undefined,
-          createdAt: new Date().toISOString(),
+          specialty: isDoctorSignup ? 'General Medicine' : undefined,
+          qualification: isDoctorSignup ? 'MD' : undefined,
+          department: isDoctorSignup ? 'General Practice' : undefined,
+          licenseNumber: isDoctorSignup ? `MED-${Math.floor(100000 + Math.random() * 900000)}` : undefined,
+          hospitalAffiliation: isDoctorSignup ? 'MediVerse Healthcare Network' : undefined,
+          verificationStatus: isDoctorSignup ? 'pending' : undefined,
+          verificationSubmittedAt: isDoctorSignup ? new Date().toISOString() : undefined,
+          emailVerified: true,
+          subscription: initialSubscription,
+          createdAt: now.toISOString(),
           passwordHash: db.hashPassword(`fb_auth_${Date.now()}_${Math.random()}`)
         };
 
         data.users.push(newUser);
-
-        if (userRole === 'doctor') {
-          const docName = newUser.name.startsWith('Dr.') ? newUser.name : `Dr. ${newUser.name}`;
-          if (!data.doctors.some(d => d.name.toLowerCase() === docName.toLowerCase())) {
-            data.doctors.push({
-              id: `doc_${userId}`,
-              name: docName,
-              specialty: 'General Medicine',
-              qualification: 'MD',
-              department: 'General Practice',
-              experience: '8+ years',
-              availableDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-            });
-          }
-        }
-
         db.save(data);
         user = newUser;
       } else {
+        // Never override existing role from client request! Role is strictly server-authoritative
         if (user.role === 'patient' && !user.patientId) {
           user.patientId = db.generatePatientId();
-          db.save(data);
         }
+        user.subscription = getUserSubscription(user);
+        db.save(data);
       }
 
       const token = db.generateToken(user.id);
       const { passwordHash: _, ...safeUser } = user;
+      safeUser.subscription = getUserSubscription(user);
 
       res.json({ user: safeUser, token });
     } catch (err: any) {
@@ -430,6 +711,182 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
     }
   });
 
+  // Doctor Verification Status Endpoint
+  app.get('/api/doctor/verification-status', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+
+      res.json({
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isVerifiedDoctor: user.role === 'doctor',
+        isPendingDoctor: user.role === 'pending_doctor',
+        verificationStatus: user.verificationStatus || (user.role === 'doctor' ? 'verified' : 'none'),
+        verificationSubmittedAt: user.verificationSubmittedAt || user.createdAt,
+        verificationNotes: user.verificationNotes || 'Credentials in clinical review queue.',
+        specialty: user.specialty,
+        qualification: user.qualification,
+        licenseNumber: user.licenseNumber,
+        hospitalAffiliation: user.hospitalAffiliation
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to check verification status.' });
+    }
+  });
+
+  // Doctor Approval / Verification Endpoint (Admin Only)
+  app.post('/api/doctor/approve', (req: Request, res: Response) => {
+    try {
+      const currentUser = authenticateUser(req);
+      if (!currentUser) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+
+      // Security Enforcement: Only Administrator accounts can approve doctor credentials and promote to 'doctor' role
+      if (currentUser.role !== 'admin') {
+        db.logAudit({
+          userId: currentUser.id,
+          userName: currentUser.name,
+          role: currentUser.role,
+          action: 'ACCESS_DENIED' as any,
+          details: `Unauthorized attempt by ${currentUser.name} (${currentUser.role}) to approve doctor license.`
+        });
+        return res.status(403).json({ error: 'Forbidden: Only MediVerse Medical Review Board Administrators can verify and approve doctor licenses.' });
+      }
+
+      const { targetUserId } = req.body;
+      if (!targetUserId) {
+        return res.status(400).json({ error: 'Target user ID is required.' });
+      }
+
+      const data = db.get();
+      const userIndex = data.users.findIndex(u => u.id === targetUserId);
+      if (userIndex === -1) {
+        return res.status(404).json({ error: 'User not found.' });
+      }
+
+      const targetUser = data.users[userIndex];
+      targetUser.role = 'doctor';
+      targetUser.verificationStatus = 'verified';
+      targetUser.verificationNotes = 'Verified and approved by MediVerse Medical Review Board.';
+
+      // Add to public doctor roster for appointment booking if not exists
+      const docName = targetUser.name.startsWith('Dr.') ? targetUser.name : `Dr. ${targetUser.name}`;
+      if (!data.doctors.some(d => d.name.toLowerCase() === docName.toLowerCase())) {
+        data.doctors.push({
+          id: `doc_${targetUser.id}`,
+          name: docName,
+          specialty: targetUser.specialty || 'General Medicine',
+          qualification: targetUser.qualification || 'MD',
+          department: targetUser.department || 'General Practice',
+          experience: '8+ years',
+          availableDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+        });
+      }
+
+      db.save(data);
+
+      db.logAudit({
+        userId: currentUser.id,
+        userName: currentUser.name,
+        role: currentUser.role,
+        action: 'DOCTOR_VERIFIED',
+        details: `Doctor account for ${targetUser.name} (${targetUser.licenseNumber || 'License on file'}) was successfully verified.`
+      });
+
+      const { passwordHash: _, ...safeUser } = targetUser;
+      res.json({
+        success: true,
+        message: `Doctor account for ${targetUser.name} is now fully verified.`,
+        user: safeUser
+      });
+    } catch (err: any) {
+      console.error('Approve doctor error:', err);
+      res.status(500).json({ error: 'Failed to approve doctor.' });
+    }
+  });
+
+  // Email Verification Endpoints
+  app.get('/api/auth/verify-email-status', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+      res.json({
+        email: user.email,
+        emailVerified: user.emailVerified ?? true,
+        emailVerificationSentAt: user.emailVerificationSentAt,
+        role: user.role
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to check email verification status.' });
+    }
+  });
+
+  app.post('/api/auth/confirm-email-verification', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+
+      const data = db.get();
+      const userIdx = data.users.findIndex(u => u.id === user.id);
+      if (userIdx === -1) {
+        return res.status(404).json({ error: 'User not found.' });
+      }
+
+      data.users[userIdx].emailVerified = true;
+      db.save(data);
+
+      db.logAudit({
+        userId: user.id,
+        userName: user.name,
+        role: user.role,
+        action: 'ACCOUNT_CREATED',
+        details: `User email address (${user.email}) successfully verified.`
+      });
+
+      const { passwordHash: _, ...safeUser } = data.users[userIdx];
+      res.json({
+        success: true,
+        message: 'Email address verified successfully.',
+        user: safeUser
+      });
+    } catch (err: any) {
+      console.error('Confirm email verification error:', err);
+      res.status(500).json({ error: 'Failed to confirm email verification.' });
+    }
+  });
+
+  app.post('/api/auth/resend-verification', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+
+      const data = db.get();
+      const userIdx = data.users.findIndex(u => u.id === user.id);
+      if (userIdx !== -1) {
+        data.users[userIdx].emailVerificationSentAt = new Date().toISOString();
+        db.save(data);
+      }
+
+      res.json({
+        success: true,
+        message: `A fresh verification email has been dispatched to ${user.email}.`
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to dispatch verification email.' });
+    }
+  });
 
   app.post('/api/auth/forgot-password', (req: Request, res: Response) => {
     try {
@@ -455,6 +912,7 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
         return res.status(401).json({ error: 'Unauthorized.' });
       }
       const { passwordHash: _, ...safeUser } = user as any;
+      safeUser.subscription = getUserSubscription(user);
       res.json({ user: safeUser });
     } catch (err: any) {
       res.status(500).json({ error: 'Failed to fetch user profile.' });
@@ -500,7 +958,8 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
       if (emergencyContact !== undefined) data.users[userIndex].emergencyContact = emergencyContact;
       if (address !== undefined) data.users[userIndex].address = address;
 
-      if (data.users[userIndex].role === 'doctor') {
+      // Note: Role cannot be elevated to 'doctor' via profile update!
+      if (data.users[userIndex].role === 'doctor' || data.users[userIndex].role === 'pending_doctor') {
         if (specialty !== undefined) data.users[userIndex].specialty = specialty;
         if (qualification !== undefined) data.users[userIndex].qualification = qualification;
         if (department !== undefined) data.users[userIndex].department = department;
@@ -508,28 +967,227 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
         if (hospitalAffiliation !== undefined) data.users[userIndex].hospitalAffiliation = hospitalAffiliation;
       }
 
+      data.users[userIndex].subscription = getUserSubscription(data.users[userIndex]);
       db.save(data);
       const { passwordHash: _, ...safeUser } = data.users[userIndex];
+      safeUser.subscription = data.users[userIndex].subscription;
       res.json({ user: safeUser });
     } catch (err: any) {
       res.status(500).json({ error: 'Failed to update profile.' });
     }
   });
 
+  // ==========================================
+  // SUBSCRIPTION & TRIAL MANAGEMENT (RAZORPAY TEST MODE)
+  // ==========================================
+
+  // 1. Get current subscription & usage status
+  app.get('/api/subscription/status', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+
+      const status = getUserUsageStatus(user);
+      res.json(status);
+    } catch (err: any) {
+      console.error('Subscription status error:', err);
+      res.status(500).json({ error: 'Failed to retrieve subscription status.' });
+    }
+  });
+
+  // 2. Create Razorpay Test Mode Order
+  app.post('/api/subscription/create-order', async (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+
+      const { planType = 'premium', interval = 'monthly' } = req.body;
+      const amount = interval === 'annual' ? 99900 : 9900; // ₹99/mo or ₹999/yr in paise
+
+      const order = await createRazorpayOrder({
+        amount,
+        currency: 'INR',
+        receipt: `sub_${user.id}_${Date.now()}`
+      });
+
+      res.json({
+        ...order,
+        plan: planType,
+        interval,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone
+        }
+      });
+    } catch (err: any) {
+      console.error('Create subscription order error:', err);
+      res.status(500).json({ error: 'Failed to initiate subscription order.' });
+    }
+  });
+
+  // 3. Verify Payment & Activate Premium Plan (Test Mode)
+  app.post('/api/subscription/verify-payment', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+
+      const { razorpay_order_id, razorpay_payment_id, razorpay_signature, interval = 'monthly' } = req.body;
+
+      if (!razorpay_payment_id) {
+        return res.status(400).json({ error: 'Payment ID is required.' });
+      }
+
+      const isValid = verifyRazorpaySignature(
+        razorpay_order_id || '',
+        razorpay_payment_id,
+        razorpay_signature || ''
+      );
+
+      if (!isValid) {
+        return res.status(400).json({ error: 'Payment signature verification failed.' });
+      }
+
+      const durationDays = interval === 'annual' ? 365 : 30;
+      const upgradedSub = activatePremiumSubscription(user.id, {
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        signature: razorpay_signature,
+        durationDays
+      });
+
+      const data = db.get();
+      const updatedUser = data.users.find(u => u.id === user.id);
+      const { passwordHash: _, ...safeUser } = (updatedUser || user) as any;
+      safeUser.subscription = upgradedSub;
+
+      res.json({
+        success: true,
+        message: 'Successfully upgraded to MediVerse Premium (Test Mode). All daily limits have been elevated.',
+        subscription: upgradedSub,
+        user: safeUser
+      });
+    } catch (err: any) {
+      console.error('Verify payment error:', err);
+      res.status(500).json({ error: err.message || 'Failed to activate premium subscription.' });
+    }
+  });
+
+  // 4. Cancel Renewal
+  app.post('/api/subscription/cancel', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+
+      const data = db.get();
+      const userIdx = data.users.findIndex(u => u.id === user.id);
+      if (userIdx === -1) {
+        return res.status(404).json({ error: 'User not found.' });
+      }
+
+      if (data.users[userIdx].subscription) {
+        data.users[userIdx].subscription!.cancelAtPeriodEnd = true;
+        db.save(data);
+      }
+
+      res.json({
+        success: true,
+        message: 'Auto-renewal cancelled. You will retain Premium access until the end of the current billing period.'
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to cancel subscription.' });
+    }
+  });
+
+  // 5. Test Mode Simulator: Simulate Trial Expiry
+  app.post('/api/subscription/simulate-trial-expiry', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized.' });
+      }
+
+      const data = db.get();
+      const userIdx = data.users.findIndex(u => u.id === user.id);
+      if (userIdx === -1) {
+        return res.status(404).json({ error: 'User not found.' });
+      }
+
+      // Shift trial dates 15 days into the past
+      const pastStart = new Date(Date.now() - 16 * 24 * 60 * 60 * 1000).toISOString();
+      const pastEnd = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+
+      data.users[userIdx].subscription = {
+        plan: 'free_limited',
+        status: 'expired',
+        trialStartDate: pastStart,
+        trialEndDate: pastEnd,
+        trialDaysRemaining: 0,
+        isTrialActive: false,
+        updatedAt: new Date().toISOString()
+      };
+      db.save(data);
+
+      const status = getUserUsageStatus(data.users[userIdx]);
+      const { passwordHash: _, ...safeUser } = data.users[userIdx];
+      safeUser.subscription = data.users[userIdx].subscription;
+
+      res.json({
+        success: true,
+        message: 'Trial period marked as expired (15 days elapsed). User transitioned to Free Limited Plan.',
+        user: safeUser,
+        status
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to simulate trial expiry.' });
+    }
+  });
+
   // 2. AI Lab Report Analysis
-  app.post('/api/ai/analyze-report', async (req: Request, res: Response) => {
+  app.post('/api/ai/analyze-report', rateLimiter(15, 60000, 'ai_report'), async (req: Request, res: Response) => {
     try {
       const { base64Data, mimeType, fileName, fileSize } = req.body;
       if (!base64Data || !mimeType || !fileName) {
         return res.status(400).json({ error: 'Report file data, MIME type, and file name are required.' });
       }
 
+      // Cryptographic magic byte inspection and size verification
+      const fileValidation = validateMedicalFile(base64Data, mimeType, fileName);
+      if (!fileValidation.valid) {
+        return res.status(400).json({ error: fileValidation.error });
+      }
+
+      const safeFileName = fileValidation.cleanFileName || fileName;
       const userId = authenticate(req) || undefined;
+
+      // Server-side usage enforcement
+      if (userId) {
+        const usageCheck = checkAndIncrementUsage(userId, 'reportAnalyses');
+        if (!usageCheck.allowed) {
+          return res.status(429).json({
+            error: usageCheck.error,
+            limitReached: true,
+            plan: usageCheck.plan,
+            limit: usageCheck.limit,
+            current: usageCheck.current,
+            trialDaysRemaining: usageCheck.trialDaysRemaining
+          });
+        }
+      }
 
       const analysis = await analyzeLabReportDocument({
         base64Data,
         mimeType,
-        fileName,
+        fileName: safeFileName,
         fileSize,
         userId
       });
@@ -560,6 +1218,23 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
         return res.status(400).json({ error: 'Message cannot be empty.' });
       }
 
+      const userId = authenticate(req) || undefined;
+
+      // Server-side usage enforcement
+      if (userId) {
+        const usageCheck = checkAndIncrementUsage(userId, 'chatQueries');
+        if (!usageCheck.allowed) {
+          return res.status(429).json({
+            error: usageCheck.error,
+            limitReached: true,
+            plan: usageCheck.plan,
+            limit: usageCheck.limit,
+            current: usageCheck.current,
+            trialDaysRemaining: usageCheck.trialDaysRemaining
+          });
+        }
+      }
+
       const reply = await processHealthChat({
         message: message.trim(),
         history,
@@ -576,12 +1251,52 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
     }
   });
 
+  // 3b. AI Native Gemini Audio TTS (Natural Conversational Hindi, Hinglish, English)
+  app.post('/api/ai/tts', async (req: Request, res: Response) => {
+    try {
+      const { text, language, voiceName } = req.body;
+      if (!text || typeof text !== 'string' || !text.trim()) {
+        return res.status(400).json({ error: 'Text is required for speech synthesis.' });
+      }
+
+      const result = await generateGeminiSpeechAudio({
+        text: text.trim(),
+        language,
+        voiceName
+      });
+
+      res.json(result);
+    } catch (err: any) {
+      console.error('AI Speech synthesis error:', err);
+      res.status(500).json({
+        error: 'Failed to generate voice audio. Please try again.'
+      });
+    }
+  });
+
   // 4. Symptom Checker
   app.post('/api/ai/check-symptoms', async (req: Request, res: Response) => {
     try {
       const { symptoms, age, gender, duration } = req.body;
       if (!symptoms || !symptoms.trim()) {
         return res.status(400).json({ error: 'Please enter your symptoms to analyze.' });
+      }
+
+      const userId = authenticate(req) || undefined;
+
+      // Server-side usage enforcement
+      if (userId) {
+        const usageCheck = checkAndIncrementUsage(userId, 'symptomChecks');
+        if (!usageCheck.allowed) {
+          return res.status(429).json({
+            error: usageCheck.error,
+            limitReached: true,
+            plan: usageCheck.plan,
+            limit: usageCheck.limit,
+            current: usageCheck.current,
+            trialDaysRemaining: usageCheck.trialDaysRemaining
+          });
+        }
       }
 
       const result = await analyzeSymptoms({
@@ -606,6 +1321,23 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
         return res.status(400).json({ error: 'Please enter a medicine name.' });
       }
 
+      const userId = authenticate(req) || undefined;
+
+      // Server-side usage enforcement
+      if (userId) {
+        const usageCheck = checkAndIncrementUsage(userId, 'medicineLookups');
+        if (!usageCheck.allowed) {
+          return res.status(429).json({
+            error: usageCheck.error,
+            limitReached: true,
+            plan: usageCheck.plan,
+            limit: usageCheck.limit,
+            current: usageCheck.current,
+            trialDaysRemaining: usageCheck.trialDaysRemaining
+          });
+        }
+      }
+
       const result = await lookupMedicineInfo(medicineName.trim());
       res.json({ success: true, result });
     } catch (err: any) {
@@ -613,6 +1345,7 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
       res.status(500).json({ error: 'Could not find medicine information. Please check the spelling.' });
     }
   });
+
 
   // 6. Appointments Endpoints
   app.get('/api/appointments', (req: Request, res: Response) => {
@@ -815,7 +1548,7 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
     try {
       const user = authenticateUser(req);
       if (!user) {
-        return res.json({ reports: [] });
+        return res.status(401).json({ error: 'Unauthorized. Please sign in to access health records.' });
       }
       const data = db.get();
 
@@ -966,6 +1699,20 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
       if (!user) {
         return res.status(401).json({ error: 'Unauthorized.' });
       }
+
+      // Server-side usage enforcement
+      const usageCheck = checkAndIncrementUsage(user.id, 'reportComparisons');
+      if (!usageCheck.allowed) {
+        return res.status(429).json({
+          error: usageCheck.error,
+          limitReached: true,
+          plan: usageCheck.plan,
+          limit: usageCheck.limit,
+          current: usageCheck.current,
+          trialDaysRemaining: usageCheck.trialDaysRemaining
+        });
+      }
+
       const { previousReportId, currentReportId } = req.body;
       if (!previousReportId || !currentReportId) {
         return res.status(400).json({ error: 'Both previous and current report IDs are required.' });
@@ -1140,10 +1887,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
 
   app.post('/api/prescriptions', (req: Request, res: Response) => {
     try {
-      const user = authenticateUser(req);
-      if (!user || user.role !== 'doctor') {
-        return res.status(403).json({ error: 'Only licensed doctors can author clinical prescriptions.' });
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
       }
+      const user = auth.user;
 
       const {
         patientUserId,
@@ -1261,10 +2009,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
 
   app.post('/api/clinical-notes', (req: Request, res: Response) => {
     try {
-      const user = authenticateUser(req);
-      if (!user || user.role !== 'doctor') {
-        return res.status(403).json({ error: 'Only doctors can create clinical notes.' });
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
       }
+      const user = auth.user;
 
       const { patientUserId, diagnosis, clinicalObservations, treatmentPlan, followUpDate } = req.body;
       if (!patientUserId || !diagnosis || !clinicalObservations || !treatmentPlan) {
@@ -1315,10 +2064,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 12. Doctor Patient Management & Linking (Supports both /api/doctor/link-patient and /api/doctor/patients/link)
   app.get('/api/doctor/patients', (req: Request, res: Response) => {
     try {
-      const user = authenticateUser(req);
-      if (!user || user.role !== 'doctor') {
-        return res.status(403).json({ error: 'Access restricted to authorized doctors.' });
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
       }
+      const user = auth.user;
 
       const data = db.get();
       const relationships = data.patientDoctorRelationships.filter(r => r.doctorUserId === user.id && r.status === 'active');
@@ -1355,10 +2105,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
 
   const handleLinkPatient = (req: Request, res: Response) => {
     try {
-      const user = authenticateUser(req);
-      if (!user || user.role !== 'doctor') {
-        return res.status(403).json({ error: 'Access restricted to doctors.' });
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
       }
+      const user = auth.user;
 
       const { patientSearch, patientId, patientEmail } = req.body;
       const query = (patientSearch || patientId || patientEmail || '').trim().toLowerCase();
@@ -1433,10 +2184,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
 
   const handlePatientOverview = (req: Request, res: Response) => {
     try {
-      const user = authenticateUser(req);
-      if (!user || user.role !== 'doctor') {
-        return res.status(403).json({ error: 'Access restricted to authorized doctors.' });
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
       }
+      const user = auth.user;
 
       const patientUserId = req.params.patientUserId;
       const data = db.get();
@@ -1491,10 +2243,12 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // Doctor Dashboard Stats
   app.get('/api/doctor/stats', (req: Request, res: Response) => {
     try {
-      const user = authenticateUser(req);
-      if (!user || user.role !== 'doctor') {
-        return res.status(403).json({ error: 'Access restricted.' });
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
       }
+      const user = auth.user;
+
       const data = db.get();
       const patientCount = data.patientDoctorRelationships.filter(r => r.doctorUserId === user.id && r.status === 'active').length;
       const prescriptionCount = data.prescriptions.filter(p => p.doctorUserId === user.id).length;
@@ -1670,18 +2424,37 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
     if (!Array.isArray(patient.timeline)) patient.timeline = [];
     if (!Array.isArray(patient.aiSummaries)) patient.aiSummaries = [];
     if (!Array.isArray(patient.prescriptions)) patient.prescriptions = [];
+    if (!Array.isArray(patient.consultations)) patient.consultations = [];
     return patient;
   }
 
   // 1. Get Patients List
   app.get('/api/patients', (req: Request, res: Response) => {
     try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Authentication required.' });
+      }
+
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) {
         data.patientRecords = [];
         db.save(data);
       }
-      const patients = data.patientRecords.map(normalizePatient);
+
+      let patients = data.patientRecords.map(normalizePatient);
+
+      if (user.role === 'doctor') {
+        // Verified doctor can view all hospital patient records
+      } else if (user.role === 'patient') {
+        // Patient can ONLY view their own records
+        patients = patients.filter(p => p.userId === user.id || (user.patientId && p.uhid === user.patientId));
+      } else if (user.role === 'pending_doctor') {
+        return res.status(403).json({ error: 'Doctor account is pending verification. Patient health records are restricted.' });
+      } else {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
+
       // Return sorted by most recent updated/created
       patients.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
       res.json({ success: true, count: patients.length, patients });
@@ -1694,7 +2467,12 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 2. Admit New Patient
   app.post('/api/patients/admit', (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
+
       const {
         patientName,
         uhid,
@@ -1738,7 +2516,7 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
       const patientId = `pat_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const now = new Date().toISOString();
       const admTime = admissionDateTime ? new Date(admissionDateTime).toISOString() : now;
-      const attending = attendingPhysician ? attendingPhysician.trim() : (currentUser?.role === 'doctor' ? currentUser.name : 'Dr. Sarah Jenkins, MD');
+      const attending = attendingPhysician ? attendingPhysician.trim() : (currentUser?.name ? `Dr. ${currentUser.name.replace(/^Dr\.\s*/i, '')}` : 'Dr. Sarah Jenkins, MD');
       const dept = department ? department.trim() : 'General Medicine';
 
       const initialTimelineItem: PatientTimelineItem = {
@@ -1804,6 +2582,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 3. Get Single Patient
   app.get('/api/patients/:id', (req: Request, res: Response) => {
     try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Authentication required.' });
+      }
+
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) {
         data.patientRecords = [];
@@ -1813,6 +2596,17 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
       if (!patient) {
         return res.status(404).json({ error: 'Patient record not found.' });
       }
+
+      if (user.role === 'patient') {
+        if (patient.userId !== user.id && (!user.patientId || patient.uhid !== user.patientId)) {
+          return res.status(403).json({ error: 'Access restricted: You can only view your own medical record.' });
+        }
+      } else if (user.role === 'pending_doctor') {
+        return res.status(403).json({ error: 'Doctor account is pending verification. Patient records are restricted.' });
+      } else if (user.role !== 'doctor') {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
+
       res.json({ success: true, patient: normalizePatient(patient) });
     } catch (err: any) {
       console.error('Error getting patient:', err);
@@ -1823,7 +2617,12 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 4. Update Patient Profile
   app.put('/api/patients/:id', (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
+
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -1890,7 +2689,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 5. Delete Patient Record
   app.delete('/api/patients/:id', (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -1912,7 +2715,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 6. Mark Patient Discharged
   app.post('/api/patients/:id/discharge', (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -1954,7 +2761,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 7. Create/Generate Discharge Summary
   app.post('/api/patients/:id/discharge-summary', async (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2019,7 +2830,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 8. Add Vitals
   app.post('/api/patients/:id/vitals', (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2081,6 +2896,10 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // Delete Vital
   app.delete('/api/patients/:id/vitals/:vitalId', (req: Request, res: Response) => {
     try {
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2103,7 +2922,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 9. Add Labs
   app.post('/api/patients/:id/labs', (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2156,6 +2979,10 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // Delete Lab
   app.delete('/api/patients/:id/labs/:labId', (req: Request, res: Response) => {
     try {
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2191,7 +3018,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 10. Add Medication
   app.post('/api/patients/:id/medications', (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2258,7 +3089,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // Update Medication Status / Details
   app.put('/api/patients/:id/medications/:medId', (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2307,6 +3142,10 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // Delete Medication
   app.delete('/api/patients/:id/medications/:medId', (req: Request, res: Response) => {
     try {
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2329,7 +3168,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 11. Add Diagnosis
   app.post('/api/patients/:id/diagnoses', (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2382,6 +3225,10 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // Delete Diagnosis
   app.delete('/api/patients/:id/diagnoses/:diagId', (req: Request, res: Response) => {
     try {
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2404,7 +3251,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 12. Add Clinical Note
   app.post('/api/patients/:id/notes', (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2458,6 +3309,10 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // Delete Clinical Note
   app.delete('/api/patients/:id/notes/:noteId', (req: Request, res: Response) => {
     try {
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2478,9 +3333,13 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   });
 
   // 13. Upload Medical Document
-  app.post('/api/patients/:id/documents', (req: Request, res: Response) => {
+  app.post('/api/patients/:id/documents', rateLimiter(20, 60000, 'patient_upload'), (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2494,12 +3353,20 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
         return res.status(400).json({ error: 'File name and document data are required.' });
       }
 
+      // Cryptographic magic byte verification and sanitization
+      const fileValidation = validateMedicalFile(dataUrl, fileType || 'application/pdf', fileName);
+      if (!fileValidation.valid) {
+        return res.status(400).json({ error: fileValidation.error });
+      }
+
+      const safeFileName = fileValidation.cleanFileName || fileName.trim();
+
       const now = new Date().toISOString();
       const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       const doc: PatientDocument = {
         id: docId,
         patientId: p.id,
-        fileName: fileName.trim(),
+        fileName: safeFileName,
         fileType: fileType || 'application/pdf',
         fileSize: fileSize ? Number(fileSize) : undefined,
         category: category as any,
@@ -2536,6 +3403,10 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // Delete Document
   app.delete('/api/patients/:id/documents/:docId', (req: Request, res: Response) => {
     try {
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2571,7 +3442,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 14. Analyze Document with AI
   app.post('/api/patients/:id/documents/:docId/analyze', async (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2632,7 +3507,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 15. Review & Save Extracted Clinical Information
   app.post('/api/patients/:id/documents/save-extracted', (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2764,7 +3643,25 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 16. Create Medical Summary from Actual Patient Records
   app.post('/api/patients/:id/summary', async (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
+
+      // Server-side usage enforcement
+      const usageCheck = checkAndIncrementUsage(currentUser.id, 'clinicalSummaries');
+      if (!usageCheck.allowed) {
+        return res.status(429).json({
+          error: usageCheck.error,
+          limitReached: true,
+          plan: usageCheck.plan,
+          limit: usageCheck.limit,
+          current: usageCheck.current,
+          trialDaysRemaining: usageCheck.trialDaysRemaining
+        });
+      }
+
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2800,7 +3697,11 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
   // 17. Create Prescription for Patient
   app.post('/api/patients/:id/prescriptions', (req: Request, res: Response) => {
     try {
-      const currentUser = authenticateUser(req);
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
       const data = db.get();
       if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
 
@@ -2906,6 +3807,495 @@ Sitemap: https://medi-verse-ai-wine.vercel.app/sitemap.xml
     } catch (err: any) {
       console.error('Prescription creation error:', err);
       res.status(500).json({ error: 'Failed to create prescription.' });
+    }
+  });
+
+  // ==========================================
+  // AI VOICE CONSULTATION & CLINICAL NOTE SUITE
+  // ==========================================
+
+  // 1. Start Consultation Session with explicit consent
+  app.post('/api/consultations/start', (req: Request, res: Response) => {
+    try {
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
+      const { patientId, consentObtained } = req.body;
+
+      if (!patientId) {
+        return res.status(400).json({ error: 'Patient ID is required to start a consultation.' });
+      }
+      if (!consentObtained) {
+        return res.status(400).json({
+          error: 'Explicit patient and doctor consent is strictly required prior to audio capture.'
+        });
+      }
+
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+      const patient = data.patientRecords.find(p => p.id === patientId || p.uhid === patientId);
+      if (!patient) {
+        return res.status(404).json({ error: 'Authorized patient record not found.' });
+      }
+
+      const now = new Date().toISOString();
+      const consultationId = `cons_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+      const newConsultation: PatientConsultation = {
+        id: consultationId,
+        patientId: patient.id,
+        patientName: patient.patientName,
+        patientUhid: patient.uhid,
+        patientUserId: patient.userId,
+        doctorUserId: currentUser.id,
+        doctorName: currentUser.name,
+        doctorSpecialty: currentUser.specialty || 'General Medicine',
+        startedAt: now,
+        endedAt: now,
+        durationSeconds: 0,
+        consentObtained: true,
+        consentTimestamp: now,
+        transcription: [],
+        fullTranscriptText: '',
+        status: 'draft',
+        createdAt: now,
+        updatedAt: now
+      };
+
+      db.logAudit({
+        userId: currentUser.id,
+        userName: currentUser.name,
+        role: 'doctor',
+        action: 'PATIENT_RECORD_ACCESSED',
+        targetPatientId: patient.id,
+        details: `Doctor ${currentUser.name} initiated consented AI Voice Consultation session (${consultationId}) for patient ${patient.patientName} (${patient.uhid})`
+      });
+
+      res.status(201).json({
+        success: true,
+        message: 'Consultation session initiated with explicit consent.',
+        consultation: newConsultation,
+        patient: normalizePatient(patient)
+      });
+    } catch (err: any) {
+      console.error('Start consultation error:', err);
+      res.status(500).json({ error: 'Failed to initiate consultation session.' });
+    }
+  });
+
+  // 2. Refine and Diarize Consultation Transcript
+  app.post('/api/consultations/refine-transcript', async (req: Request, res: Response) => {
+    try {
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
+      const { rawTranscript, patientName } = req.body;
+
+      if (!rawTranscript || typeof rawTranscript !== 'string' || !rawTranscript.trim()) {
+        return res.status(400).json({ error: 'No transcript text provided for refinement.' });
+      }
+
+      const refinedUtterances = await refineConsultationTranscript(
+        rawTranscript,
+        currentUser.name,
+        patientName || 'Patient'
+      );
+
+      res.json({
+        success: true,
+        transcription: refinedUtterances
+      });
+    } catch (err: any) {
+      console.error('Transcript refinement error:', err);
+      res.status(500).json({ error: 'Failed to diarize and refine transcript.' });
+    }
+  });
+
+  // 3. Generate AI-Assisted Structured Clinical Note Draft
+  app.post('/api/consultations/generate-note', async (req: Request, res: Response) => {
+    try {
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
+
+      // Check daily rate limits
+      const usageCheck = checkAndIncrementUsage(currentUser.id, 'clinicalSummaries');
+      if (!usageCheck.allowed) {
+        return res.status(429).json({
+          error: usageCheck.error,
+          limitReached: true,
+          plan: usageCheck.plan,
+          limit: usageCheck.limit,
+          current: usageCheck.current,
+          trialDaysRemaining: usageCheck.trialDaysRemaining
+        });
+      }
+
+      const {
+        patientId,
+        transcript,
+        doctorEnteredFindings,
+        durationSeconds = 0
+      } = req.body;
+
+      if (!patientId) {
+        return res.status(400).json({ error: 'Patient ID is required.' });
+      }
+
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+      const patient = data.patientRecords.find(p => p.id === patientId || p.uhid === patientId);
+      if (!patient) {
+        return res.status(404).json({ error: 'Patient not found.' });
+      }
+
+      const patientNorm = normalizePatient(patient);
+      const activeMeds = patientNorm.medications.filter(m => m.status === 'Active').map(m => `${m.medicineName} ${m.strength}`).join(', ');
+      const pastDiags = patientNorm.diagnoses.map(d => `${d.diagnosisName} (${d.type})`).join(', ');
+
+      const draftNote = await generateClinicalConsultationNote({
+        transcript: transcript || '',
+        doctorEnteredFindings: doctorEnteredFindings || '',
+        patientName: patientNorm.patientName,
+        patientAge: patientNorm.age,
+        patientGender: patientNorm.gender,
+        patientAllergies: patientNorm.allergies || 'None documented',
+        patientMedications: activeMeds || 'None documented',
+        patientHistory: pastDiags || patientNorm.reasonForAdmission,
+        doctorName: currentUser.name,
+        doctorSpecialty: currentUser.specialty || 'General Medicine'
+      });
+
+      res.json({
+        success: true,
+        aiDraftNote: draftNote,
+        patient: patientNorm
+      });
+    } catch (err: any) {
+      console.error('Generate consultation note error:', err);
+      res.status(500).json({ error: 'Failed to generate AI consultation clinical note draft.' });
+    }
+  });
+
+  // 4. Doctor Review, Edit, and Final Approval of Clinical Note
+  app.post('/api/consultations/approve', (req: Request, res: Response) => {
+    try {
+      const auth = authenticateDoctor(req);
+      if (auth.error || !auth.user) {
+        return res.status(auth.status || 403).json({ error: auth.error });
+      }
+      const currentUser = auth.user;
+
+      const {
+        consultationId,
+        patientId,
+        approvedNote,
+        transcription = [],
+        fullTranscriptText = '',
+        durationSeconds = 0,
+        createPrescription = false,
+        prescribedMedicines = []
+      } = req.body;
+
+      if (!patientId) {
+        return res.status(400).json({ error: 'Patient ID is required.' });
+      }
+      if (!approvedNote || !approvedNote.chiefComplaint) {
+        return res.status(400).json({ error: 'Approved clinical note details are required.' });
+      }
+
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+      if (!Array.isArray(data.consultations)) data.consultations = [];
+
+      const idx = data.patientRecords.findIndex(p => p.id === patientId || p.uhid === patientId);
+      if (idx === -1) {
+        return res.status(404).json({ error: 'Patient record not found.' });
+      }
+
+      const p = normalizePatient(data.patientRecords[idx]);
+      const now = new Date().toISOString();
+      const finalConsId = consultationId || `cons_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+      // 1. Construct the finalized consultation record
+      const consultationRecord: PatientConsultation = {
+        id: finalConsId,
+        patientId: p.id,
+        patientName: p.patientName,
+        patientUhid: p.uhid,
+        patientUserId: p.userId,
+        doctorUserId: currentUser.id,
+        doctorName: currentUser.name,
+        doctorSpecialty: currentUser.specialty || 'General Medicine',
+        startedAt: now,
+        endedAt: now,
+        durationSeconds: Number(durationSeconds) || 0,
+        consentObtained: true,
+        consentTimestamp: now,
+        transcription: Array.isArray(transcription) ? transcription : [],
+        fullTranscriptText: fullTranscriptText || '',
+        status: 'reviewed_and_approved',
+        approvedNote: {
+          chiefComplaint: approvedNote.chiefComplaint,
+          symptoms: Array.isArray(approvedNote.symptoms) ? approvedNote.symptoms : [],
+          durationAndHistory: approvedNote.durationAndHistory || '',
+          relevantMedicalHistory: approvedNote.relevantMedicalHistory || '',
+          currentMedicines: Array.isArray(approvedNote.currentMedicines) ? approvedNote.currentMedicines : [],
+          allergies: approvedNote.allergies || '',
+          importantPatientStatements: Array.isArray(approvedNote.importantPatientStatements) ? approvedNote.importantPatientStatements : [],
+          examinationFindings: approvedNote.examinationFindings || '',
+          assessment: approvedNote.assessment || '',
+          suggestedFollowUp: approvedNote.suggestedFollowUp || '',
+          treatmentPlan: approvedNote.treatmentPlan || '',
+          prescribedMedicines: Array.isArray(prescribedMedicines) && prescribedMedicines.length > 0 ? prescribedMedicines : undefined,
+          approvedAt: now,
+          approvedByDoctorId: currentUser.id,
+          approvedByDoctorName: currentUser.name,
+          doctorSpecialty: currentUser.specialty || 'General Medicine',
+          clinicalObservations: approvedNote.clinicalObservations || approvedNote.examinationFindings || ''
+        },
+        createdAt: now,
+        updatedAt: now
+      };
+
+      // 2. Add or update in patient consultations array
+      const existingConsIdx = p.consultations.findIndex(c => c.id === finalConsId);
+      if (existingConsIdx >= 0) {
+        p.consultations[existingConsIdx] = consultationRecord;
+      } else {
+        p.consultations.unshift(consultationRecord);
+      }
+
+      // Also update in global db.consultations
+      const globalConsIdx = data.consultations.findIndex(c => c.id === finalConsId);
+      if (globalConsIdx >= 0) {
+        data.consultations[globalConsIdx] = consultationRecord;
+      } else {
+        data.consultations.unshift(consultationRecord);
+      }
+
+      // 3. Create a formal Clinical Note in patient record
+      const clinicalNoteEntry: PatientClinicalNote = {
+        id: `cn_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        noteType: 'Consultation Note',
+        title: `AI Voice Consultation: ${approvedNote.chiefComplaint.slice(0, 50)}`,
+        content: `CHIEF COMPLAINT:\n${approvedNote.chiefComplaint}\n\nSYMPTOMS:\n${(approvedNote.symptoms || []).join(', ') || 'None stated'}\n\nHISTORY / DURATION:\n${approvedNote.durationAndHistory || 'Reviewed'}\n\nEXAMINATION / FINDINGS:\n${approvedNote.examinationFindings || 'Exam completed'}\n\nCLINICAL ASSESSMENT:\n${approvedNote.assessment || 'Assessment documented'}\n\nTREATMENT PLAN:\n${approvedNote.treatmentPlan || 'Plan established'}\n\nFOLLOW-UP:\n${approvedNote.suggestedFollowUp || 'Routine follow-up'}`,
+        authorName: currentUser.name,
+        authorRole: currentUser.specialty ? `Physician (${currentUser.specialty})` : 'Attending Physician',
+        date: now,
+        createdAt: now
+      };
+      p.clinicalNotes.unshift(clinicalNoteEntry);
+
+      // Also add to global clinical notes
+      data.clinicalNotes.unshift({
+        id: clinicalNoteEntry.id,
+        patientUserId: p.userId || p.id,
+        patientId: p.uhid || p.id,
+        patientName: p.patientName,
+        doctorUserId: currentUser.id,
+        doctorName: currentUser.name,
+        doctorSpecialty: currentUser.specialty || 'General Medicine',
+        diagnosis: approvedNote.assessment || approvedNote.chiefComplaint,
+        clinicalObservations: approvedNote.examinationFindings || '',
+        treatmentPlan: approvedNote.treatmentPlan || '',
+        followUpDate: approvedNote.suggestedFollowUp || undefined,
+        createdAt: now
+      });
+
+      // 4. Optionally Create Digital Prescription
+      let createdRx: Prescription | undefined = undefined;
+      if (createPrescription && Array.isArray(prescribedMedicines) && prescribedMedicines.length > 0) {
+        const rxNumber = `RX-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+        createdRx = {
+          id: `rx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          prescriptionNumber: rxNumber,
+          patientUserId: p.userId || p.id,
+          patientId: p.uhid || p.id,
+          patientName: p.patientName,
+          patientAge: p.age,
+          patientGender: p.gender,
+          doctorUserId: currentUser.id,
+          doctorName: currentUser.name,
+          doctorSpecialty: currentUser.specialty || 'General Medicine',
+          doctorQualification: currentUser.qualification || 'MD',
+          doctorLicense: currentUser.licenseNumber || 'LIC-MED-2026',
+          diagnosis: approvedNote.assessment || approvedNote.chiefComplaint,
+          symptoms: (approvedNote.symptoms || []).join(', '),
+          medicines: prescribedMedicines,
+          instructions: approvedNote.treatmentPlan || 'Take medications as prescribed with meals.',
+          followUpDate: approvedNote.suggestedFollowUp || undefined,
+          createdAt: now
+        };
+
+        p.prescriptions.unshift(createdRx);
+        data.prescriptions.unshift(createdRx);
+        consultationRecord.createdPrescriptionId = createdRx.id;
+
+        // Add each prescribed medicine into patient active medications
+        prescribedMedicines.forEach((m: any) => {
+          if (m.name) {
+            p.medications.unshift({
+              id: `med_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              patientId: p.id,
+              medicineName: m.name.trim(),
+              strength: m.strength ? m.strength.trim() : '',
+              route: 'Oral',
+              frequency: m.frequency ? m.frequency.trim() : 'As prescribed',
+              duration: m.duration ? m.duration.trim() : '7 days',
+              startDate: now,
+              instructions: m.instructions ? m.instructions.trim() : undefined,
+              status: 'Active',
+              prescribedBy: currentUser.name,
+              createdAt: now
+            });
+          }
+        });
+      }
+
+      // 5. Add Timeline Event
+      p.timeline.unshift({
+        id: `tl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        patientId: p.id,
+        timestamp: now,
+        eventType: 'Consultation Note Added',
+        title: `AI Voice Consultation Approved`,
+        description: `Consultation reviewed and approved by ${currentUser.name}. Chief complaint: "${approvedNote.chiefComplaint}". Treatment plan finalized.${createdRx ? ` Digital Prescription #${createdRx.prescriptionNumber} generated.` : ''}`,
+        createdByName: currentUser.name
+      });
+
+      p.updatedAt = now;
+      data.patientRecords[idx] = p;
+      db.save(data);
+
+      db.logAudit({
+        userId: currentUser.id,
+        userName: currentUser.name,
+        role: 'doctor',
+        action: 'CLINICAL_NOTE_CREATED',
+        recordId: finalConsId,
+        targetPatientId: p.id,
+        details: `Doctor ${currentUser.name} reviewed, edited, and approved Voice AI Consultation Note for ${p.patientName} (${p.uhid})`
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Consultation note verified and securely stored in patient record.',
+        consultation: consultationRecord,
+        clinicalNote: clinicalNoteEntry,
+        prescription: createdRx,
+        patient: p
+      });
+    } catch (err: any) {
+      console.error('Consultation note approval error:', err);
+      res.status(500).json({ error: 'Failed to approve and save consultation note.' });
+    }
+  });
+
+  // 5. Get All Consultations for an Authorized Patient
+  app.get('/api/consultations/patient/:patientId', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Authentication required.' });
+      }
+
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+      const p = data.patientRecords.find(item => item.id === req.params.patientId || item.uhid === req.params.patientId);
+
+      if (!p) {
+        return res.status(404).json({ error: 'Patient not found.' });
+      }
+
+      // Authorization check
+      if (user.role === 'patient') {
+        if (p.userId !== user.id && (!user.patientId || p.uhid !== user.patientId)) {
+          return res.status(403).json({ error: 'Access denied: You can only access your own consultation history.' });
+        }
+      } else if (user.role === 'pending_doctor') {
+        return res.status(403).json({ error: 'Pending doctor accounts cannot access consultation history.' });
+      }
+
+      const patientNorm = normalizePatient(p);
+      res.json({
+        success: true,
+        consultations: patientNorm.consultations || []
+      });
+    } catch (err: any) {
+      console.error('Get patient consultations error:', err);
+      res.status(500).json({ error: 'Failed to load consultation history.' });
+    }
+  });
+
+  // 6. Delete a Consultation Note / Transcript (Retention Policy)
+  app.delete('/api/consultations/:id', (req: Request, res: Response) => {
+    try {
+      const user = authenticateUser(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Authentication required.' });
+      }
+
+      const data = db.get();
+      if (!Array.isArray(data.patientRecords)) data.patientRecords = [];
+      if (!Array.isArray(data.consultations)) data.consultations = [];
+
+      let foundPatient: LivePatientRecord | null = null;
+      let targetCons: PatientConsultation | null = null;
+
+      for (const p of data.patientRecords) {
+        if (Array.isArray(p.consultations)) {
+          const c = p.consultations.find(item => item.id === req.params.id);
+          if (c) {
+            foundPatient = p;
+            targetCons = c;
+            break;
+          }
+        }
+      }
+
+      if (!foundPatient || !targetCons) {
+        return res.status(404).json({ error: 'Consultation not found.' });
+      }
+
+      if (user.role === 'patient' && foundPatient.userId !== user.id && foundPatient.uhid !== user.patientId) {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
+
+      // Remove from patient record
+      foundPatient.consultations = foundPatient.consultations?.filter(c => c.id !== req.params.id) || [];
+      foundPatient.updatedAt = new Date().toISOString();
+
+      // Remove from global consultations
+      data.consultations = data.consultations.filter(c => c.id !== req.params.id);
+
+      db.save(data);
+
+      db.logAudit({
+        userId: user.id,
+        userName: user.name,
+        role: user.role,
+        action: 'REPORT_DELETED',
+        recordId: req.params.id,
+        targetPatientId: foundPatient.id,
+        details: `${user.name} deleted consultation record ${req.params.id} under data retention policy.`
+      });
+
+      res.json({
+        success: true,
+        message: 'Consultation transcript and record successfully removed per retention policy.',
+        patient: normalizePatient(foundPatient)
+      });
+    } catch (err: any) {
+      console.error('Delete consultation error:', err);
+      res.status(500).json({ error: 'Failed to delete consultation record.' });
     }
   });
 

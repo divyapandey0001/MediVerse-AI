@@ -13,6 +13,81 @@
       "hospitalAffiliation": "Healing tree",
       "createdAt": "2026-08-19T03:50:01.001Z",
       "passwordHash": "5a07173678f19cd16e837ad583ef84b4032edfabc1c19bdee299c6a1997e8298"
+    },
+    {
+      "id": "usr_1787389760907_mgav",
+      "name": "Audit Test Patient",
+      "email": "patient_audit_test@mediverse.org",
+      "role": "patient",
+      "patientId": "PT-343150",
+      "emailVerified": true,
+      "emailVerificationSentAt": "2026-08-22T09:09:20.907Z",
+      "createdAt": "2026-08-22T09:09:20.907Z",
+      "passwordHash": "a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea"
+    },
+    {
+      "id": "usr_1787389772850_l4z7",
+      "name": "Dr. Audit Physician",
+      "email": "doctor_audit_test@mediverse.org",
+      "role": "doctor",
+      "specialty": "Cardiology",
+      "qualification": "MD, FACC",
+      "department": "General Practice",
+      "licenseNumber": "MED-998822",
+      "hospitalAffiliation": "Apollo Health",
+      "verificationStatus": "verified",
+      "verificationSubmittedAt": "2026-08-22T09:09:32.850Z",
+      "verificationNotes": "Verified and approved by MediVerse Medical Review Board.",
+      "emailVerified": true,
+      "emailVerificationSentAt": "2026-08-22T09:09:32.850Z",
+      "createdAt": "2026-08-22T09:09:32.850Z",
+      "passwordHash": "a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea"
+    },
+    {
+      "id": "usr_1787390782589_915e",
+      "name": "Sarah Connor",
+      "email": "trial_test_1787390782577@mediverse.health",
+      "role": "patient",
+      "patientId": "PT-312128",
+      "emailVerified": false,
+      "emailVerificationSentAt": "2026-08-22T09:26:22.589Z",
+      "subscription": {
+        "plan": "free_limited",
+        "status": "expired",
+        "trialStartDate": "2026-08-06T09:26:22.595Z",
+        "trialEndDate": "2026-08-20T09:26:22.595Z",
+        "trialDaysRemaining": 0,
+        "isTrialActive": false,
+        "updatedAt": "2026-08-22T09:26:22.595Z"
+      },
+      "createdAt": "2026-08-22T09:26:22.589Z",
+      "passwordHash": "a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea"
+    },
+    {
+      "id": "usr_1787390860077_ornu",
+      "name": "Sarah Connor",
+      "email": "trial_test_1787390860065@mediverse.health",
+      "role": "patient",
+      "patientId": "PT-568247",
+      "emailVerified": false,
+      "emailVerificationSentAt": "2026-08-22T09:27:40.077Z",
+      "subscription": {
+        "plan": "premium",
+        "status": "active",
+        "trialStartDate": "2026-08-06T09:27:40.082Z",
+        "trialEndDate": "2026-08-20T09:27:40.082Z",
+        "trialDaysRemaining": 0,
+        "isTrialActive": false,
+        "currentPeriodStart": "2026-08-22T09:27:40.425Z",
+        "currentPeriodEnd": "2026-09-21T09:27:40.425Z",
+        "razorpayPaymentId": "pay_test_998877",
+        "razorpayOrderId": "order_TSlXeflTEuLtt6",
+        "razorpaySignature": "sig_test_998877",
+        "cancelAtPeriodEnd": false,
+        "updatedAt": "2026-08-22T09:27:40.425Z"
+      },
+      "createdAt": "2026-08-22T09:27:40.077Z",
+      "passwordHash": "a109e36947ad56de1dca1cc49f0ef8ac9ad9a7b1aa0df41fb3c4cb73c1ff01ea"
     }
   ],
   "appointments": [],
@@ -118,6 +193,21 @@
         "Thursday",
         "Friday"
       ]
+    },
+    {
+      "id": "doc_usr_1787389772850_l4z7",
+      "name": "Dr. Audit Physician",
+      "specialty": "Cardiology",
+      "qualification": "MD, FACC",
+      "department": "General Practice",
+      "experience": "8+ years",
+      "availableDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ]
     }
   ],
   "reviews": [
@@ -150,5 +240,79 @@
   "prescriptions": [],
   "clinicalNotes": [],
   "patientDoctorRelationships": [],
-  "auditLogs": []
+  "auditLogs": [
+    {
+      "id": "audit-1787390860425-mgtcjv",
+      "userId": "usr_1787390860077_ornu",
+      "userName": "Sarah Connor",
+      "role": "patient",
+      "action": "SUBSCRIPTION_UPGRADED",
+      "details": "User subscribed to MediVerse Premium (Test Mode payment ID: pay_test_998877, Valid until: 2026-09-21T09:27:40.425Z)",
+      "timestamp": "2026-08-22T09:27:40.425Z"
+    },
+    {
+      "id": "audit-1787390860077-fzuds4",
+      "userId": "usr_1787390860077_ornu",
+      "userName": "Sarah Connor",
+      "role": "patient",
+      "action": "ACCOUNT_CREATED",
+      "details": "Patient account created (PT-568247, 14-Day Premium Trial Started)",
+      "timestamp": "2026-08-22T09:27:40.077Z"
+    },
+    {
+      "id": "audit-1787390782589-vi1re6",
+      "userId": "usr_1787390782589_915e",
+      "userName": "Sarah Connor",
+      "role": "patient",
+      "action": "ACCOUNT_CREATED",
+      "details": "Patient account created (PT-312128, 14-Day Premium Trial Started)",
+      "timestamp": "2026-08-22T09:26:22.589Z"
+    },
+    {
+      "id": "audit-1787389785879-gilmer",
+      "userId": "usr_1787389772850_l4z7",
+      "userName": "Dr. Audit Physician",
+      "role": "doctor",
+      "action": "DOCTOR_VERIFIED",
+      "details": "Doctor account for Dr. Audit Physician (MED-998822) was successfully verified.",
+      "timestamp": "2026-08-22T09:09:45.879Z"
+    },
+    {
+      "id": "audit-1787389782609-8lk817",
+      "userId": "usr_1787389772850_l4z7",
+      "userName": "Dr. Audit Physician",
+      "role": "pending_doctor",
+      "action": "ACCOUNT_CREATED",
+      "details": "User email address (doctor_audit_test@mediverse.org) successfully verified.",
+      "timestamp": "2026-08-22T09:09:42.609Z"
+    },
+    {
+      "id": "audit-1787389772851-3wq7xi",
+      "userId": "usr_1787389772850_l4z7",
+      "userName": "Dr. Audit Physician",
+      "role": "pending_doctor",
+      "action": "ACCOUNT_CREATED",
+      "details": "Doctor registered with license MED-998822 (Status: Pending Verification)",
+      "timestamp": "2026-08-22T09:09:32.851Z"
+    },
+    {
+      "id": "audit-1787389765285-kjfpog",
+      "userId": "usr_1787389760907_mgav",
+      "userName": "Audit Test Patient",
+      "role": "patient",
+      "action": "ACCOUNT_CREATED",
+      "details": "User email address (patient_audit_test@mediverse.org) successfully verified.",
+      "timestamp": "2026-08-22T09:09:25.285Z"
+    },
+    {
+      "id": "audit-1787389760908-s6jcsk",
+      "userId": "usr_1787389760907_mgav",
+      "userName": "Audit Test Patient",
+      "role": "patient",
+      "action": "ACCOUNT_CREATED",
+      "details": "Patient account created (PT-343150)",
+      "timestamp": "2026-08-22T09:09:20.908Z"
+    }
+  ],
+  "patientRecords": []
 }

@@ -25,6 +25,7 @@ const BlogPostPage = lazy(() => import('./pages/BlogPostPage.js').then(m => ({ d
 const LoginPage = lazy(() => import('./pages/AuthPages.js').then(m => ({ default: m.LoginPage })));
 const SignUpPage = lazy(() => import('./pages/AuthPages.js').then(m => ({ default: m.SignUpPage })));
 const ForgotPasswordPage = lazy(() => import('./pages/AuthPages.js').then(m => ({ default: m.ForgotPasswordPage })));
+const EmailVerificationPage = lazy(() => import('./pages/AuthPages.js').then(m => ({ default: m.EmailVerificationPage })));
 
 const PageLoadingFallback: React.FC = () => (
   <div className="min-h-[60vh] flex flex-col items-center justify-center p-8 space-y-3">
@@ -71,6 +72,20 @@ function AppContent() {
       return <BlogPostPage slug={slug} onNavigate={handleNavigate} />;
     }
 
+    // Protected Route Gate for Unverified Users
+    const protectedPages = [
+      'patient-dashboard',
+      'doctor-dashboard',
+      'live-patient-record',
+      'live-ehr',
+      'patient-record',
+      'profile'
+    ];
+
+    if (user && user.emailVerified === false && protectedPages.includes(currentPage)) {
+      return <EmailVerificationPage onNavigate={handleNavigate} />;
+    }
+
     switch (currentPage) {
       case 'home':
       case 'services':
@@ -92,18 +107,25 @@ function AppContent() {
       case 'ai-chat':
         return <HealthChatPage onNavigate={handleNavigate} />;
       case 'patient-dashboard':
+        if (!user) return <LoginPage onNavigate={handleNavigate} />;
         return <PatientDashboard onNavigate={handleNavigate} />;
       case 'doctor-dashboard':
+        if (!user) return <LoginPage onNavigate={handleNavigate} />;
         return <DoctorDashboard onNavigate={handleNavigate} />;
       case 'live-patient-record':
       case 'live-ehr':
       case 'patient-record':
+        if (!user) return <LoginPage onNavigate={handleNavigate} />;
         return <LivePatientRecordPage onNavigate={handleNavigate} />;
       case 'profile':
-        if (user?.role === 'doctor') {
+        if (!user) return <LoginPage onNavigate={handleNavigate} />;
+        if (user.role === 'doctor' || user.role === 'pending_doctor') {
           return <DoctorDashboard onNavigate={handleNavigate} />;
         }
         return <PatientDashboard onNavigate={handleNavigate} />;
+      case 'email-verification':
+      case 'verify-email':
+        return <EmailVerificationPage onNavigate={handleNavigate} />;
       case 'about':
         return <AboutPage onNavigate={handleNavigate} />;
       case 'contact':

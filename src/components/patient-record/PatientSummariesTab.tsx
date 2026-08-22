@@ -11,7 +11,9 @@ import {
   LogOut,
   X,
   Stethoscope,
-  Activity
+  Activity,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { LivePatientRecord, PatientAiSummary, PatientDischargeSummary } from '../../types.js';
 import { useAuth } from '../../context/AuthContext.js';
@@ -19,6 +21,11 @@ import {
   downloadPatientMedicalSummaryPDF,
   downloadPatientDischargeSummaryPDF
 } from '../../utils/pdfExport.js';
+import {
+  speakText,
+  stopSpeaking,
+  detectTextLanguage
+} from '../../lib/speechUtils.js';
 
 interface PatientSummariesTabProps {
   patient: LivePatientRecord;
@@ -49,6 +56,23 @@ export const PatientSummariesTab: React.FC<PatientSummariesTabProps> = ({
   const [generatingAiDischarge, setGeneratingAiDischarge] = useState(false);
   const [submittingDischarge, setSubmittingDischarge] = useState(false);
   const [dischargeError, setDischargeError] = useState<string | null>(null);
+  const [activeSpeakingId, setActiveSpeakingId] = useState<string | null>(null);
+
+  const handleSpeakText = (id: string, text: string) => {
+    if (activeSpeakingId === id) {
+      stopSpeaking();
+      setActiveSpeakingId(null);
+      return;
+    }
+
+    stopSpeaking();
+    setActiveSpeakingId(id);
+
+    speakText(text, {
+      onEnd: () => setActiveSpeakingId(null),
+      onError: () => setActiveSpeakingId(null)
+    });
+  };
 
   // 1. Generate AI Clinical Medical Summary
   const handleGenerateMedicalSummary = async () => {
@@ -366,13 +390,41 @@ export const PatientSummariesTab: React.FC<PatientSummariesTabProps> = ({
             </button>
 
             {latestSummary && (
-              <button
-                onClick={() => downloadPatientMedicalSummaryPDF(patient, latestSummary)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs border border-blue-200 transition-colors"
-              >
-                <Download className="w-4 h-4" />
-                <span>Download PDF</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = `Medical Summary for ${patient.patientName}. Overview: ${latestSummary.overview || latestSummary.overallHealthStatus}. Key findings: ${Array.isArray(latestSummary.keyFindings) ? latestSummary.keyFindings.join('. ') : latestSummary.keyFindings}. Active Treatment: ${latestSummary.activeTreatmentStatus || ''}`;
+                    handleSpeakText('medical_summary', text);
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl font-semibold text-xs border transition-colors ${
+                    activeSpeakingId === 'medical_summary'
+                      ? 'bg-indigo-600 text-white border-indigo-600 animate-pulse'
+                      : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                  }`}
+                  title="Listen to medical summary in natural language voice"
+                >
+                  {activeSpeakingId === 'medical_summary' ? (
+                    <>
+                      <VolumeX className="w-4 h-4" />
+                      <span>Stop Reading</span>
+                    </>
+                  ) : (
+                    <>
+                      <Volume2 className="w-4 h-4" />
+                      <span>Listen to Summary</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  onClick={() => downloadPatientMedicalSummaryPDF(patient, latestSummary)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs border border-blue-200 transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download PDF</span>
+                </button>
+              </>
             )}
           </div>
         </div>

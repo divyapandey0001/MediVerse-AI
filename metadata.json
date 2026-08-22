@@ -1,6 +1,6 @@
 {
   "name": "MediVerse",
   "description": "AI Powered Healthcare Platform with live patient health records (EHR), lab report analysis, longitudinal comparisons, symptom checker, medicine information, digital prescriptions, and clinical management.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

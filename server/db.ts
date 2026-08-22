@@ -15,7 +15,8 @@ import {
   PatientDoctorRelationship,
   AuditLog,
   UserRole,
-  LivePatientRecord
+  LivePatientRecord,
+  PatientConsultation
 } from '../src/types.js';
 
 // Support both standard server (local/container) and Vercel Serverless (where process.cwd() is read-only)
@@ -37,6 +38,7 @@ interface DatabaseSchema {
   patientDoctorRelationships: PatientDoctorRelationship[];
   auditLogs: AuditLog[];
   patientRecords: LivePatientRecord[];
+  consultations: PatientConsultation[];
 }
 
 const DEFAULT_DOCTORS: Doctor[] = [
@@ -104,7 +106,8 @@ function createDefaultDb(): DatabaseSchema {
     clinicalNotes: [],
     patientDoctorRelationships: [],
     auditLogs: [],
-    patientRecords: []
+    patientRecords: [],
+    consultations: []
   };
 }
 
@@ -141,6 +144,7 @@ function initDb(): DatabaseSchema {
     if (!Array.isArray(parsed.patientDoctorRelationships)) parsed.patientDoctorRelationships = [];
     if (!Array.isArray(parsed.auditLogs)) parsed.auditLogs = [];
     if (!Array.isArray(parsed.patientRecords)) parsed.patientRecords = [];
+    if (!Array.isArray(parsed.consultations)) parsed.consultations = [];
 
     memoryCache = parsed;
     return parsed;
@@ -151,6 +155,11 @@ function initDb(): DatabaseSchema {
     return initialData;
   }
 }
+
+// Token signing secret and revocation cache
+const TOKEN_SECRET = process.env.TOKEN_SECRET || crypto.randomBytes(32).toString('hex');
+const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days expiration
+const revokedTokens = new Set<string>();
 
 export const db = {
   get(): DatabaseSchema {
@@ -169,25 +178,126 @@ export const db = {
     }
   },
 
-  hashPassword(password: string): string {
-    return crypto.createHash('sha256').update(password).digest('hex');
+  /**
+   * Hashes a password using PBKDF2 with salt.
+   */
+  hashPassword(password: string, salt?: string): string {
+    const activeSalt = salt || crypto.randomBytes(16).toString('hex');
+    const hash = crypto.pbkdf2Sync(password, activeSalt, 100000, 32, 'sha256').toString('hex');
+    return `pbkdf2$100000$${activeSalt}$${hash}`;
   },
 
+  /**
+   * Securely verifies a password against stored hash (supporting both new PBKDF2 and legacy SHA256).
+   */
+  verifyPassword(password: string, storedHash: string): boolean {
+    if (!storedHash) return false;
+
+    // Check if it's a salted PBKDF2 hash
+    if (storedHash.startsWith('pbkdf2$')) {
+      const parts = storedHash.split('$');
+      if (parts.length === 4) {
+        const iterations = parseInt(parts[1], 10) || 100000;
+        const salt = parts[2];
+        const expectedHash = parts[3];
+        const computedHash = crypto.pbkdf2Sync(password, salt, iterations, 32, 'sha256').toString('hex');
+        return crypto.timingSafeEqual(Buffer.from(expectedHash, 'hex'), Buffer.from(computedHash, 'hex'));
+      }
+    }
+
+    // Legacy SHA-256 fallback
+    const legacyHash = crypto.createHash('sha256').update(password).digest('hex');
+    try {
+      return crypto.timingSafeEqual(Buffer.from(legacyHash, 'hex'), Buffer.from(storedHash, 'hex'));
+    } catch {
+      return legacyHash === storedHash;
+    }
+  },
+
+  /**
+   * Generates a signed, tamper-proof session token with expiry and signature.
+   */
   generateToken(userId: string): string {
-    const payload = `${userId}:${Date.now()}:${crypto.randomBytes(16).toString('hex')}`;
-    return Buffer.from(payload).toString('base64');
+    const issuedAt = Date.now();
+    const expiresAt = issuedAt + TOKEN_TTL_MS;
+    const nonce = crypto.randomBytes(12).toString('hex');
+    const payload = `${userId}:${issuedAt}:${expiresAt}:${nonce}`;
+    const signature = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('base64url');
+    return Buffer.from(`${payload}.${signature}`).toString('base64url');
   },
 
+  /**
+   * Cryptographically verifies token signature, expiry, and revocation state.
+   */
   verifyToken(token: string): string | null {
     try {
-      const decoded = Buffer.from(token, 'base64').toString('utf-8');
-      const [userId] = decoded.split(':');
+      if (!token || typeof token !== 'string') return null;
+      if (revokedTokens.has(token)) return null;
+
+      // Check URL-safe base64 / standard base64 decoding
+      let rawToken: string;
+      try {
+        rawToken = Buffer.from(token, 'base64url').toString('utf-8');
+      } catch {
+        rawToken = Buffer.from(token, 'base64').toString('utf-8');
+      }
+
+      // Signed token format: payload.signature
+      if (rawToken.includes('.')) {
+        const [payload, signature] = rawToken.split('.');
+        if (!payload || !signature) return null;
+
+        const expectedSignature = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('base64url');
+        const sigBuf = Buffer.from(signature);
+        const expBuf = Buffer.from(expectedSignature);
+
+        if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+          return null; // Signature mismatch / tampering attempt
+        }
+
+        const [userId, _issuedAt, expiresAtStr] = payload.split(':');
+        const expiresAt = parseInt(expiresAtStr, 10);
+
+        if (isNaN(expiresAt) || Date.now() > expiresAt) {
+          return null; // Token expired
+        }
+
+        const data = this.get();
+        const user = data.users.find(u => u.id === userId);
+        return user ? user.id : null;
+      }
+
+      // Legacy fallback token format (userId:timestamp:nonce) with 7-day TTL
+      const [userId, issuedAtStr] = rawToken.split(':');
       if (!userId) return null;
+
+      const issuedAt = parseInt(issuedAtStr, 10);
+      if (!isNaN(issuedAt) && Date.now() - issuedAt > TOKEN_TTL_MS) {
+        return null; // Expired legacy token
+      }
+
       const data = this.get();
       const user = data.users.find(u => u.id === userId);
       return user ? user.id : null;
     } catch {
       return null;
+    }
+  },
+
+  /**
+   * Revokes a session token immediately.
+   */
+  revokeToken(token: string) {
+    if (token) {
+      revokedTokens.add(token);
+      // Clean up old entries if cache grows large (> 10000)
+      if (revokedTokens.size > 10000) {
+        const iterator = revokedTokens.values();
+        for (let i = 0; i < 2000; i++) {
+          const item = iterator.next().value;
+          if (item) revokedTokens.delete(item);
+        }
+      }
     }
   },
 

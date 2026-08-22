@@ -1,4 +1,4 @@
-export type UserRole = 'patient' | 'doctor';
+export type UserRole = 'patient' | 'doctor' | 'pending_doctor' | 'admin';
 
 export type SubscriptionPlanType = 'trial' | 'free_limited' | 'premium';
 export type SubscriptionStatusType = 'active' | 'trialing' | 'canceled' | 'expired' | 'past_due';
@@ -70,6 +70,11 @@ export interface User {
   department?: string;
   licenseNumber?: string;
   hospitalAffiliation?: string;
+  verificationStatus?: 'pending' | 'verified' | 'rejected';
+  verificationSubmittedAt?: string;
+  verificationNotes?: string;
+  emailVerified?: boolean;
+  emailVerificationSentAt?: string;
   createdAt: string;
   // Subscription & Rate Limiting
   subscription?: UserSubscription;
@@ -197,7 +202,9 @@ export interface AuditLog {
     | 'PRESCRIPTION_VIEWED'
     | 'PRESCRIPTION_DOWNLOADED'
     | 'CLINICAL_NOTE_CREATED'
-    | 'PATIENT_RECORD_ACCESSED';
+    | 'PATIENT_RECORD_ACCESSED'
+    | 'ACCOUNT_CREATED'
+    | 'DOCTOR_VERIFIED';
   recordId?: string;
   targetPatientId?: string;
   details: string;
@@ -525,6 +532,73 @@ export interface PatientDischargeSummary {
   notes?: string;
 }
 
+export interface ConsultationSpeakerUtterance {
+  id: string;
+  speaker: 'Doctor' | 'Patient';
+  text: string;
+  timestamp: string; // e.g. "01:24" or ISO string
+}
+
+export interface ConsultationClinicalNoteDraft {
+  chiefComplaint: string;
+  symptoms: string[];
+  durationAndHistory: string;
+  relevantMedicalHistory: string;
+  currentMedicines: string[];
+  allergies: string;
+  importantPatientStatements: string[];
+  examinationFindings: string;
+  assessment: string;
+  suggestedFollowUp: string;
+  treatmentPlanDraft: string;
+  isAiDraft: boolean;
+  aiDisclaimer: string;
+}
+
+export interface ApprovedConsultationNote {
+  chiefComplaint: string;
+  symptoms: string[];
+  durationAndHistory: string;
+  relevantMedicalHistory: string;
+  currentMedicines: string[];
+  allergies: string;
+  importantPatientStatements: string[];
+  examinationFindings: string;
+  assessment: string;
+  suggestedFollowUp: string;
+  treatmentPlan: string;
+  prescribedMedicines?: PrescriptionMedicine[];
+  approvedAt: string;
+  approvedByDoctorId: string;
+  approvedByDoctorName: string;
+  doctorSpecialty?: string;
+  clinicalObservations?: string;
+}
+
+export interface PatientConsultation {
+  id: string;
+  patientId: string;
+  patientName: string;
+  patientUhid?: string;
+  patientUserId?: string;
+  doctorUserId: string;
+  doctorName: string;
+  doctorSpecialty?: string;
+  startedAt: string;
+  endedAt: string;
+  durationSeconds: number;
+  consentObtained: boolean;
+  consentTimestamp: string;
+  transcription: ConsultationSpeakerUtterance[];
+  fullTranscriptText: string;
+  status: 'draft' | 'reviewed_and_approved' | 'discarded';
+  aiDraftNote?: ConsultationClinicalNoteDraft;
+  approvedNote?: ApprovedConsultationNote;
+  createdPrescriptionId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface LivePatientRecord {
   id: string;
   uhid: string;
@@ -559,10 +633,12 @@ export interface LivePatientRecord {
   timeline: PatientTimelineItem[];
   aiSummaries: PatientAiSummary[];
   prescriptions: Prescription[];
+  consultations?: PatientConsultation[];
 }
 
 export type ExtractedClinicalData = ExtractedDocumentData;
 export type PatientVitalSign = PatientVitalEntry;
+
 
 
 

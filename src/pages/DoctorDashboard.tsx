@@ -23,20 +23,23 @@ import {
   HeartPulse,
   Activity,
   GitCompare,
-  FileCheck
+  FileCheck,
+  Crown,
+  Zap
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.js';
 import { User, Prescription, ClinicalNote, Appointment, LabReportAnalysis, AuditLog } from '../types.js';
 import { downloadPrescriptionPDF, downloadReportPDF, downloadHealthSummaryPDF } from '../utils/pdfExport.js';
 import { SEOHead } from '../components/SEOHead.js';
 import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
+import { SubscriptionModal } from '../components/SubscriptionModal.js';
 
 interface DoctorDashboardProps {
   onNavigate: (page: string) => void;
 }
 
 export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate }) => {
-  const { user, token } = useAuth();
+  const { user, token, refreshUser, logout } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'roster' | 'prescribe' | 'notes' | 'appointments' | 'audit'>('roster');
   const [patients, setPatients] = useState<User[]>([]);
@@ -45,6 +48,9 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate }) 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [statusChecking, setStatusChecking] = useState<boolean>(false);
+  const [approving, setApproving] = useState<boolean>(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   // Link Patient State
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -82,13 +88,17 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate }) 
   const [noteDiagnosis, setNoteDiagnosis] = useState('');
   const [noteObservations, setNoteObservations] = useState('');
   const [noteTreatmentPlan, setNoteTreatmentPlan] = useState('');
+  const [showSubModal, setShowSubModal] = useState<boolean>(false);
   const [noteFollowUpDate, setNoteFollowUpDate] = useState('');
   const [noteSubmitting, setNoteSubmitting] = useState(false);
   const [noteSuccessMsg, setNoteSuccessMsg] = useState<string | null>(null);
   const [noteError, setNoteError] = useState<string | null>(null);
 
   const fetchDoctorData = async () => {
-    if (!token) return;
+    if (!token || !user || user.role !== 'doctor') {
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     try {
       const headers = { Authorization: `Bearer ${token}` };
@@ -130,7 +140,60 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate }) 
 
   useEffect(() => {
     fetchDoctorData();
-  }, [token]);
+  }, [token, user?.role]);
+
+  const handleCheckStatus = async () => {
+    if (!token) return;
+    setStatusChecking(true);
+    setStatusMessage(null);
+    try {
+      const res = await fetch('/api/doctor/verification-status', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.isVerified) {
+          setStatusMessage('Doctor verification approved! Updating permissions...');
+          await refreshUser();
+        } else {
+          setStatusMessage(`Status: ${data.verificationStatus || 'Pending Review'}. License ${data.licenseNumber || ''} is currently under verification by the MediVerse Medical Verification Board.`);
+        }
+      } else {
+        setStatusMessage(data.error || 'Failed to check verification status.');
+      }
+    } catch (err) {
+      setStatusMessage('Network error checking status.');
+    } finally {
+      setStatusChecking(false);
+    }
+  };
+
+  const handleApproveDoctor = async () => {
+    if (!token || !user) return;
+    setApproving(true);
+    setStatusMessage(null);
+    try {
+      const res = await fetch('/api/doctor/approve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ userId: user.id })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatusMessage('Doctor credentials successfully verified and approved! Redirecting to Physician Portal...');
+        await refreshUser();
+      } else {
+        setStatusMessage(data.error || 'Approval failed.');
+      }
+    } catch (err) {
+      setStatusMessage('Network error during verification approval.');
+    } finally {
+      setApproving(false);
+    }
+  };
 
   // Load Patient EHR details
   const handleOpenPatientEHR = async (patId: string) => {
@@ -319,6 +382,195 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate }) 
       p.email.toLowerCase().includes(patientSearch.toLowerCase())
   );
 
+  // 1. Guard: Not Logged In
+  if (!token || !user) {
+    return (
+      <div id="doctor-auth-required" className="min-h-[80vh] flex items-center justify-center bg-slate-50 py-12 px-4 sm:px-6">
+        <SEOHead
+          title="Physician Portal Access Required | MediVerse"
+          description="Authentication required to access the physician portal."
+          canonicalPath="/doctor-dashboard"
+          noIndex={true}
+        />
+        <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-slate-200 shadow-sm text-center space-y-6">
+          <div className="w-16 h-16 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center mx-auto">
+            <Stethoscope className="w-8 h-8" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold text-slate-900">Physician Portal Sign In</h1>
+            <p className="text-sm text-slate-600">
+              Access to electronic health records, roster management, and e-prescriptions requires verified medical practitioner authentication.
+            </p>
+          </div>
+          <div className="space-y-3 pt-2">
+            <button
+              onClick={() => onNavigate('login')}
+              className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+            >
+              Sign In to Doctor Account
+            </button>
+            <button
+              onClick={() => onNavigate('signup')}
+              className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-sm transition-all cursor-pointer"
+            >
+              Register as a Doctor / Physician
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Guard: Doctor Account Pending Verification
+  if (user.role === 'pending_doctor') {
+    return (
+      <div id="doctor-pending-verification" className="min-h-[85vh] flex items-center justify-center bg-slate-50 py-12 px-4 sm:px-6">
+        <SEOHead
+          title="Doctor Verification In Progress | MediVerse"
+          description="Doctor account credential verification pending medical review."
+          canonicalPath="/doctor-dashboard"
+          noIndex={true}
+        />
+        <div className="max-w-2xl w-full bg-white rounded-3xl p-8 sm:p-10 border border-amber-200 shadow-sm space-y-6">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+              <Clock className="w-7 h-7" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-2xl font-extrabold text-slate-900">
+                  Doctor Verification Pending
+                </h1>
+                <span className="px-2.5 py-0.5 bg-amber-100 text-amber-800 text-xs font-semibold rounded-full border border-amber-300">
+                  Under Review
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                Medical License & Credential Verification Protocol
+              </p>
+            </div>
+          </div>
+
+          {/* Physician Information Box */}
+          <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 space-y-3">
+            <h2 className="text-xs font-bold text-slate-600 uppercase tracking-wider">Submitted Credentials</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-xs text-slate-500 block">Doctor Name</span>
+                <span className="font-semibold text-slate-800">{user.name}</span>
+              </div>
+              <div>
+                <span className="text-xs text-slate-500 block">Medical License #</span>
+                <span className="font-mono font-semibold text-blue-700">{user.licenseNumber || 'License on file'}</span>
+              </div>
+              <div>
+                <span className="text-xs text-slate-500 block">Specialty & Qualification</span>
+                <span className="font-semibold text-slate-800">{user.specialty || 'General Medicine'} ({user.qualification || 'MD'})</span>
+              </div>
+              <div>
+                <span className="text-xs text-slate-500 block">Hospital / Institution</span>
+                <span className="font-semibold text-slate-800">{user.hospitalAffiliation || 'Private Practice'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Security & Access Protection Notice */}
+          <div className="p-4 bg-amber-50/80 rounded-2xl border border-amber-200 text-xs text-amber-900 space-y-2">
+            <div className="flex items-center gap-2 font-bold text-amber-950">
+              <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0" />
+              <span>Protected Patient Records Notice</span>
+            </div>
+            <p className="leading-relaxed">
+              In accordance with healthcare privacy regulations and HIPAA compliance, doctor accounts require verified medical licensure before patient health records, EHR histories, and prescription authoring tools can be unlocked. Your submitted credentials are being reviewed by the MediVerse Medical Verification Board.
+            </p>
+          </div>
+
+          {statusMessage && (
+            <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs font-medium text-blue-800 flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+              <span>{statusMessage}</span>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+            <button
+              onClick={handleCheckStatus}
+              disabled={statusChecking}
+              className="w-full sm:flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-semibold text-sm shadow-md shadow-blue-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {statusChecking ? <Clock className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+              <span>{statusChecking ? 'Checking Status...' : 'Check Verification Status'}</span>
+            </button>
+
+            <button
+              onClick={handleApproveDoctor}
+              disabled={approving}
+              className="w-full sm:flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl font-semibold text-sm shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {approving ? <Clock className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              <span>{approving ? 'Approving...' : 'Fast-Track Approve (Demo)'}</span>
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+            <button
+              onClick={() => onNavigate('patient-dashboard')}
+              className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+            >
+              Go to Patient Portal
+            </button>
+            <button
+              onClick={logout}
+              className="text-red-600 hover:text-red-800 font-medium cursor-pointer"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Guard: Patient Role Attempting to Access Doctor Portal
+  if (user.role === 'patient') {
+    return (
+      <div id="doctor-access-restricted" className="min-h-[80vh] flex items-center justify-center bg-slate-50 py-12 px-4 sm:px-6">
+        <SEOHead
+          title="Access Restricted | MediVerse"
+          description="Doctor portal is restricted to authorized physicians."
+          canonicalPath="/doctor-dashboard"
+          noIndex={true}
+        />
+        <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-red-200 shadow-sm text-center space-y-6">
+          <div className="w-16 h-16 rounded-2xl bg-red-100 text-red-700 flex items-center justify-center mx-auto">
+            <ShieldCheck className="w-8 h-8" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold text-slate-900">Physician Access Only</h1>
+            <p className="text-sm text-slate-600">
+              You are signed in as a <span className="font-semibold text-slate-900">Patient</span>. The Doctor Portal is strictly restricted to licensed clinical healthcare providers.
+            </p>
+          </div>
+          <div className="space-y-3 pt-2">
+            <button
+              onClick={() => onNavigate('patient-dashboard')}
+              className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+            >
+              Return to My Health Records
+            </button>
+            <button
+              onClick={() => onNavigate('signup')}
+              className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-sm transition-all cursor-pointer"
+            >
+              Register a Doctor Account
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div id="doctor-dashboard-container" className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
       <SEOHead
@@ -396,6 +648,80 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate }) 
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
               <span className="text-slate-500 block">Consultations</span>
               <span className="text-2xl font-black text-emerald-600 mt-1">{appointments.length}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Subscription & 14-Day Free Trial Status Banner */}
+        <div className={`rounded-3xl p-5 sm:p-6 border shadow-xs transition-all ${
+          user?.subscription?.plan === 'premium'
+            ? 'bg-gradient-to-r from-blue-900 to-indigo-900 text-white border-blue-800'
+            : user?.subscription?.plan === 'trial'
+            ? 'bg-gradient-to-r from-blue-50 via-indigo-50 to-amber-50/40 border-blue-200/80 text-slate-800'
+            : 'bg-amber-50/70 border-amber-200 text-slate-800'
+        }`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start sm:items-center gap-3.5">
+              <div className={`p-3 rounded-2xl shrink-0 ${
+                user?.subscription?.plan === 'premium'
+                  ? 'bg-amber-400 text-slate-900 shadow-md shadow-amber-400/30'
+                  : user?.subscription?.plan === 'trial'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                  : 'bg-amber-600 text-white'
+              }`}>
+                <Crown className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                    user?.subscription?.plan === 'premium'
+                      ? 'bg-amber-400/20 text-amber-300 border border-amber-400/30'
+                      : user?.subscription?.plan === 'trial'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-amber-200 text-amber-900'
+                  }`}>
+                    {user?.subscription?.plan === 'premium'
+                      ? 'MediVerse Premium'
+                      : user?.subscription?.plan === 'trial'
+                      ? '14-Day Free Trial'
+                      : 'Free Limited Plan'}
+                  </span>
+                  {user?.subscription?.plan === 'trial' && (
+                    <span className="text-xs font-bold text-blue-700 bg-blue-100/80 px-2.5 py-0.5 rounded-full">
+                      {user?.subscription?.trialDaysRemaining ?? 14} days remaining
+                    </span>
+                  )}
+                </div>
+                <p className={`text-xs sm:text-sm mt-1 leading-relaxed ${
+                  user?.subscription?.plan === 'premium'
+                    ? 'text-blue-100'
+                    : 'text-slate-600'
+                }`}>
+                  {user?.subscription?.plan === 'premium'
+                    ? 'Full clinical intelligence active: unlimited report comparisons, AI synthesis, and patient records.'
+                    : user?.subscription?.plan === 'trial'
+                    ? 'You have automatic 14-day full premium access. After 14 days, you will automatically transition to the Free Limited Plan.'
+                    : 'Your 14-day trial has completed. You are on the Free Limited Plan with daily quotas.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setShowSubModal(true)}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                  user?.subscription?.plan === 'premium'
+                    ? 'bg-white/20 hover:bg-white/30 text-white border border-white/30'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm shadow-blue-600/20'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>
+                  {user?.subscription?.plan === 'premium'
+                    ? 'Manage Subscription'
+                    : 'View Quotas & Upgrade'}
+                </span>
+              </button>
             </div>
           </div>
         </div>
@@ -1234,6 +1560,12 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate }) 
           </div>
         </div>
       )}
+
+      {/* Subscription & Quota Upgrade Modal */}
+      <SubscriptionModal
+        isOpen={showSubModal}
+        onClose={() => setShowSubModal(false)}
+      />
     </div>
   );
 };

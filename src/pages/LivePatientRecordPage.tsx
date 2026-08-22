@@ -17,7 +17,8 @@ import {
   Sparkles,
   FileCheck2,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  Mic
 } from 'lucide-react';
 import { LivePatientRecord } from '../types.js';
 import { useAuth } from '../context/AuthContext.js';
@@ -32,6 +33,7 @@ import { PatientPrescriptionsTab } from '../components/patient-record/PatientPre
 import { PatientSummariesTab } from '../components/patient-record/PatientSummariesTab.js';
 import { PatientTimelineTab } from '../components/patient-record/PatientTimelineTab.js';
 import { PatientProfileTab } from '../components/patient-record/PatientProfileTab.js';
+import { VoiceConsultationWorkspace } from '../components/patient-record/VoiceConsultationWorkspace.js';
 import { SEOHead } from '../components/SEOHead.js';
 import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
 
@@ -148,6 +150,7 @@ export const LivePatientRecordPage: React.FC<LivePatientRecordPageProps> = ({ on
                 setShowPrescriptionModal(true);
               }}
               onOpenProfileTab={() => setActiveTab('profile')}
+              onOpenConsultationTab={() => setActiveTab('consultations')}
             />
 
             {/* Navigation Tabs Bar */}
@@ -155,6 +158,7 @@ export const LivePatientRecordPage: React.FC<LivePatientRecordPageProps> = ({ on
               <div className="flex items-center gap-1 min-w-max">
                 {[
                   { id: 'overview', label: 'Overview', icon: Activity },
+                  { id: 'consultations', label: `Voice Consultation (${selectedPatient.consultations?.length || 0})`, icon: Mic },
                   { id: 'documents', label: `Documents (${selectedPatient.documents?.length || 0})`, icon: FileText },
                   { id: 'labs-vitals', label: `Labs & Vitals (${(selectedPatient.vitals?.length || 0) + (selectedPatient.labResults?.length || 0)})`, icon: HeartPulse },
                   { id: 'medications', label: `Medications (${selectedPatient.medications?.filter(m => m.status === 'Active').length || 0})`, icon: Stethoscope },
@@ -195,6 +199,14 @@ export const LivePatientRecordPage: React.FC<LivePatientRecordPageProps> = ({ on
                   onOpenAddDiagnosis={() => setActiveTab('diagnoses-notes')}
                   onOpenAddNote={() => setActiveTab('diagnoses-notes')}
                   onOpenUploadDoc={() => setActiveTab('documents')}
+                />
+              )}
+
+              {activeTab === 'consultations' && (
+                <VoiceConsultationWorkspace
+                  patient={selectedPatient}
+                  onPatientUpdated={handlePatientUpdated}
+                  onNavigateToTab={tabId => setActiveTab(tabId)}
                 />
               )}
 
