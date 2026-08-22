@@ -1,0 +1,70 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role, clinical demographic data, and subscription status.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique user identifier" },
+        "name": { "type": "string", "description": "User full name", "maxLength": 100 },
+        "email": { "type": "string", "description": "User email address", "maxLength": 120 },
+        "role": { "type": "string", "enum": ["patient", "doctor"], "description": "User access role" },
+        "patientId": { "type": "string", "description": "Unique patient UHID code" },
+        "phone": { "type": "string", "description": "Contact phone number", "maxLength": 20 },
+        "createdAt": { "type": "string", "description": "Account registration timestamp" },
+        "updatedAt": { "type": "string", "description": "Last profile update timestamp" }
+      },
+      "required": ["id", "name", "email", "role", "createdAt"]
+    },
+    "Subscription": {
+      "title": "Subscription",
+      "description": "User subscription plan, trial dates, and payment metadata.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Target user ID" },
+        "plan": { "type": "string", "enum": ["trial", "free_limited", "premium"], "description": "Current plan tier" },
+        "status": { "type": "string", "enum": ["active", "trialing", "canceled", "expired", "past_due"], "description": "Subscription status" },
+        "trialStartDate": { "type": "string", "description": "Trial start ISO timestamp" },
+        "trialEndDate": { "type": "string", "description": "Trial expiry ISO timestamp (14 days from registration)" },
+        "currentPeriodStart": { "type": "string", "description": "Current active billing cycle start" },
+        "currentPeriodEnd": { "type": "string", "description": "Current active billing cycle end" },
+        "razorpayOrderId": { "type": "string", "description": "Razorpay order reference ID" },
+        "razorpayPaymentId": { "type": "string", "description": "Razorpay verified payment ID" },
+        "razorpaySubscriptionId": { "type": "string", "description": "Razorpay recurring subscription ID" },
+        "cancelAtPeriodEnd": { "type": "boolean", "description": "Whether plan cancels at period end" },
+        "updatedAt": { "type": "string", "description": "Last subscription state sync timestamp" }
+      },
+      "required": ["userId", "plan", "status", "trialStartDate", "trialEndDate"]
+    },
+    "DailyUsage": {
+      "title": "DailyUsage",
+      "description": "Daily feature usage counters for rate limiting.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "User ID" },
+        "date": { "type": "string", "description": "Date string in YYYY-MM-DD format" },
+        "reportAnalyses": { "type": "number", "description": "Number of lab reports analyzed today" },
+        "chatQueries": { "type": "number", "description": "Number of AI health chat queries sent today" },
+        "symptomChecks": { "type": "number", "description": "Number of symptom checks performed today" },
+        "medicineLookups": { "type": "number", "description": "Number of medicine lookups performed today" },
+        "clinicalSummaries": { "type": "number", "description": "Number of AI clinical summaries generated today" },
+        "reportComparisons": { "type": "number", "description": "Number of multi-report comparisons performed today" }
+      },
+      "required": ["userId", "date"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Primary user profile records and subcollections"
+    },
+    "/users/{userId}/subscription/{subscriptionId}": {
+      "schema": "Subscription",
+      "description": "User subscription and billing details"
+    },
+    "/users/{userId}/usage/{dateKey}": {
+      "schema": "DailyUsage",
+      "description": "Rate limiting daily usage records"
+    }
+  }
+}

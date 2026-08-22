@@ -30,6 +30,18 @@ service cloud.firestore {
       match /bmi/{bmiId} {
         allow read, write: if isOwner(userId);
       }
+
+      // User's Subscription & Plan metadata
+      match /subscription/{subId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+      }
+
+      // User's Daily Usage & Quotas
+      match /usage/{dateKey} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+      }
     }
 
     // Doctors collection: Publicly readable for directory, editable only by verified doctor

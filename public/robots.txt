@@ -10,9 +10,13 @@ Allow: /medicine-info
 Allow: /bmi
 Allow: /appointment
 Allow: /ai-chat
+Allow: /blog
+Allow: /blog/
 Allow: /about
 Allow: /reviews
 Allow: /contact
+Allow: /privacy-policy
+Allow: /terms-of-service
 
 # Disallow private user dashboards, medical records, patient data, authentication and internal APIs
 Disallow: /api/

@@ -1,5 +1,55 @@
 export type UserRole = 'patient' | 'doctor';
 
+export type SubscriptionPlanType = 'trial' | 'free_limited' | 'premium';
+export type SubscriptionStatusType = 'active' | 'trialing' | 'canceled' | 'expired' | 'past_due';
+
+export interface UserSubscription {
+  plan: SubscriptionPlanType;
+  status: SubscriptionStatusType;
+  trialStartDate: string;
+  trialEndDate: string;
+  trialDaysRemaining?: number;
+  isTrialActive?: boolean;
+  currentPeriodStart?: string;
+  currentPeriodEnd?: string;
+  razorpaySubscriptionId?: string;
+  razorpayPaymentId?: string;
+  razorpayOrderId?: string;
+  razorpaySignature?: string;
+  cancelAtPeriodEnd?: boolean;
+  updatedAt?: string;
+}
+
+export interface DailyUsageMetrics {
+  reportAnalyses: number;
+  chatQueries: number;
+  symptomChecks: number;
+  medicineLookups: number;
+  clinicalSummaries: number;
+  reportComparisons: number;
+}
+
+export interface PlanLimits {
+  reportAnalyses: number;
+  chatQueries: number;
+  symptomChecks: number;
+  medicineLookups: number;
+  clinicalSummaries: number;
+  reportComparisons: number;
+}
+
+export interface UserUsageStatus {
+  plan: SubscriptionPlanType;
+  status: SubscriptionStatusType;
+  trialDaysRemaining: number;
+  isTrialActive: boolean;
+  trialEndDate: string;
+  currentPeriodEnd?: string;
+  todayUsage: DailyUsageMetrics;
+  dailyLimits: PlanLimits;
+  remainingQuota: DailyUsageMetrics;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -21,6 +71,9 @@ export interface User {
   licenseNumber?: string;
   hospitalAffiliation?: string;
   createdAt: string;
+  // Subscription & Rate Limiting
+  subscription?: UserSubscription;
+  dailyUsage?: Record<string, DailyUsageMetrics>;
 }
 
 export type TestStatus = 'Normal' | 'Low' | 'High' | 'Needs Attention' | 'Critical' | 'Abnormal';

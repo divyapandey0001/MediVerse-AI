@@ -3,6 +3,7 @@
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9
         http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
+  <!-- Core Public Pages -->
   <url>
     <loc>https://medi-verse-ai-wine.vercel.app/</loc>
     <lastmod>2026-08-21</lastmod>
@@ -52,6 +53,12 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
     <loc>https://medi-verse-ai-wine.vercel.app/about</loc>
     <lastmod>2026-08-21</lastmod>
     <changefreq>monthly</changefreq>
@@ -80,5 +87,245 @@
     <lastmod>2026-08-21</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
+  </url>
+
+  <!-- Blog Articles: Medical Reports -->
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-to-read-a-complete-blood-count-cbc-report</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/understanding-high-and-low-values-in-medical-reports</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-to-understand-a-lipid-profile-report</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-to-understand-a-liver-function-test-lft-report</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-to-compare-current-and-previous-medical-reports</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-ai-can-help-you-understand-medical-reports</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Blog Articles: Symptoms -->
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-to-describe-your-symptoms-accurately-to-a-doctor</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/common-symptoms-and-when-you-should-see-a-doctor</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/understanding-the-difference-between-mild-and-emergency-symptoms</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-an-ai-symptom-checker-works</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Blog Articles: Medicines -->
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-to-find-reliable-information-about-a-medicine</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/what-should-you-know-before-taking-a-medicine</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-to-understand-medicine-names-uses-and-precautions</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-ai-can-help-you-understand-medicine-information</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Blog Articles: Wellness & BMI -->
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/what-is-bmi-and-how-is-bmi-calculated</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-to-understand-your-bmi-result</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/bmi-vs-other-health-measurements-what-should-you-know</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/why-bmi-alone-does-not-tell-the-complete-health-story</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Blog Articles: AI in Healthcare -->
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/what-can-an-ai-health-assistant-help-you-with</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-ai-is-changing-healthcare-information</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/ai-in-healthcare-what-ai-can-and-cannot-do</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-to-use-ai-healthcare-tools-responsibly</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Blog Articles: Medical Records -->
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/why-you-should-keep-your-medical-records-organized</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-digital-medical-records-can-make-healthcare-information-easier-to-manage</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-to-keep-track-of-your-previous-medical-reports</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-to-prepare-your-medical-information-before-a-doctor-visit</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Blog Articles: Doctor & Patient Care -->
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-digital-patient-records-can-help-doctors-organize-patient-information</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-doctors-can-keep-patient-reports-and-medical-notes-organized</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/why-previous-patient-reports-matter-during-follow-up-visits</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-digital-health-records-can-support-better-information-management</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Blog Articles: Appointments -->
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-to-prepare-for-a-doctor-appointment</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/what-information-should-you-have-ready-before-a-healthcare-appointment</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-digital-appointment-management-can-make-healthcare-visits-easier</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Blog Articles: Privacy & Digital Health -->
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/how-to-protect-your-personal-health-information-online</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/why-privacy-matters-in-digital-healthcare</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/what-should-you-know-before-using-an-ai-healthcare-platform</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://medi-verse-ai-wine.vercel.app/blog/benefits-and-limitations-of-ai-powered-healthcare-platforms</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
   </url>
 </urlset>

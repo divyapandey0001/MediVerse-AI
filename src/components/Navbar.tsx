@@ -80,6 +80,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
   const navItems = [
     { id: 'home', label: 'Home' },
     { id: 'services', label: 'Services' },
+    { id: 'blog', label: 'Blog' },
     { id: 'about', label: 'About' },
     { id: 'reviews', label: 'Reviews' },
     { id: 'contact', label: 'Contact' },
@@ -119,10 +120,12 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
             </div>
           </div>
 
-          {/* Center / Nav: Home, Services, About, Reviews, Contact */}
+          {/* Center / Nav: Home, Services, Blog, About, Reviews, Contact */}
           <nav className="hidden md:flex items-center gap-1 lg:gap-2">
             {navItems.map(item => {
-              const isActive = currentPage === item.id;
+              const isActive = item.id === 'blog'
+                ? (currentPage === 'blog' || currentPage.startsWith('blog/'))
+                : currentPage === item.id;
               return (
                 <button
                   key={item.id}
@@ -219,21 +222,26 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
       {/* Mobile Drawer Menu */}
       {mobileMenuOpen && (
         <div id="mobile-menu-drawer" className="md:hidden border-t border-slate-200 bg-white px-4 pt-3 pb-6 space-y-2 shadow-xl animate-fadeIn">
-          {navItems.map(item => (
-            <button
-              key={item.id}
-              id={`mobile-nav-${item.id}`}
-              onClick={() => handleNav(item.id)}
-              className={`w-full text-left px-4 py-3 rounded-lg text-base font-medium flex items-center justify-between ${
-                currentPage === item.id
-                  ? 'bg-blue-50 text-blue-700 font-semibold'
-                  : 'text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              <span>{item.label}</span>
-              <ChevronRight className="w-4 h-4 text-slate-400" />
-            </button>
-          ))}
+          {navItems.map(item => {
+            const isActive = item.id === 'blog'
+              ? (currentPage === 'blog' || currentPage.startsWith('blog/'))
+              : currentPage === item.id;
+            return (
+              <button
+                key={item.id}
+                id={`mobile-nav-${item.id}`}
+                onClick={() => handleNav(item.id)}
+                className={`w-full text-left px-4 py-3 rounded-lg text-base font-medium flex items-center justify-between ${
+                  isActive
+                    ? 'bg-blue-50 text-blue-700 font-semibold'
+                    : 'text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <span>{item.label}</span>
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              </button>
+            );
+          })}
 
           {/* Quick Tools Accordion / Direct Links on mobile */}
           <div className="pt-2">
