@@ -29,6 +29,7 @@ import { useAuth } from '../context/AuthContext.js';
 import { User, Prescription, ClinicalNote, Appointment, LabReportAnalysis, AuditLog } from '../types.js';
 import { downloadPrescriptionPDF, downloadReportPDF, downloadHealthSummaryPDF } from '../utils/pdfExport.js';
 import { SEOHead } from '../components/SEOHead.js';
+import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
 
 interface DoctorDashboardProps {
   onNavigate: (page: string) => void;
@@ -1150,6 +1151,10 @@ export const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate }) 
             )}
           </div>
         )}
+
+        <div className="pt-6">
+          <DisclaimerBanner />
+        </div>
       </div>
 
       {/* Link Patient Modal */}

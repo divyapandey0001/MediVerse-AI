@@ -1,40 +1,7 @@
 /// <reference types="vite/client" />
-import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-
-import {
-  getAuth,
-  signInWithPopup,
-  GoogleAuthProvider,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
-  sendPasswordResetEmail,
-  Auth,
-  User as FirebaseUser
-} from 'firebase/auth';
-import {
-  getFirestore,
-  doc,
-  setDoc,
-  getDoc,
-  collection,
-  query,
-  where,
-  getDocs,
-  serverTimestamp,
-  Firestore
-} from 'firebase/firestore';
-import {
-  getStorage,
-  ref,
-  uploadBytes,
-  getDownloadURL,
-  FirebaseStorage
-} from 'firebase/storage';
 
 // Default project configuration for MediVerse AI (mediverse-ai-83b0ee)
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyDemoKeyMediVerse83b0ee',
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'mediverse-ai-83b0ee.firebaseapp.com',
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'mediverse-ai-83b0ee',
@@ -44,35 +11,65 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || ''
 };
 
-let app: FirebaseApp;
-let auth: Auth;
-let db: Firestore;
-let storage: FirebaseStorage;
-let isFirebaseInitialized = false;
+export const isFirebaseInitialized = true;
 
-try {
-  if (!getApps().length) {
-    app = initializeApp(firebaseConfig);
-  } else {
-    app = getApp();
+// Lazy singletons
+let appPromise: Promise<any> | null = null;
+let authPromise: Promise<any> | null = null;
+let dbPromise: Promise<any> | null = null;
+let storagePromise: Promise<any> | null = null;
+
+export async function getFirebaseApp() {
+  if (!appPromise) {
+    appPromise = (async () => {
+      const { initializeApp, getApps, getApp } = await import('firebase/app');
+      if (!getApps().length) {
+        return initializeApp(firebaseConfig);
+      }
+      return getApp();
+    })();
   }
-  auth = getAuth(app);
-  db = getFirestore(app);
-  storage = getStorage(app);
-  isFirebaseInitialized = true;
-} catch (error) {
-  console.warn('Firebase initialization warning:', error);
-  // Fallback instances to prevent crashes during bundle evaluation
-  app = getApps()[0] || ({} as FirebaseApp);
-  auth = {} as Auth;
-  db = {} as Firestore;
-  storage = {} as FirebaseStorage;
+  return appPromise;
 }
 
-export const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+export async function getFirebaseAuth() {
+  if (!authPromise) {
+    authPromise = (async () => {
+      const app = await getFirebaseApp();
+      const { getAuth } = await import('firebase/auth');
+      return getAuth(app);
+    })();
+  }
+  return authPromise;
+}
 
-export { app, auth, db, storage, isFirebaseInitialized, firebaseConfig };
+export async function getFirebaseFirestore() {
+  if (!dbPromise) {
+    dbPromise = (async () => {
+      const app = await getFirebaseApp();
+      const { getFirestore } = await import('firebase/firestore');
+      return getFirestore(app);
+    })();
+  }
+  return dbPromise;
+}
+
+export async function getFirebaseStorage() {
+  if (!storagePromise) {
+    storagePromise = (async () => {
+      const app = await getFirebaseApp();
+      const { getStorage } = await import('firebase/storage');
+      return getStorage(app);
+    })();
+  }
+  return storagePromise;
+}
+
+// Fallback objects for backwards compatibility
+export const app = {} as any;
+export const auth = {} as any;
+export const db = {} as any;
+export const storage = {} as any;
 
 // --- Auth Helpers ---
 
@@ -80,11 +77,12 @@ export { app, auth, db, storage, isFirebaseInitialized, firebaseConfig };
  * Sign in using Firebase Google Popup Auth
  */
 export async function signInWithGoogle() {
-  if (!auth?.app) {
-    throw new Error('Firebase Auth is not initialized. Please verify your VITE_FIREBASE_API_KEY.');
-  }
   try {
-    const result = await signInWithPopup(auth, googleProvider);
+    const authInstance = await getFirebaseAuth();
+    const { signInWithPopup, GoogleAuthProvider } = await import('firebase/auth');
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const result = await signInWithPopup(authInstance, provider);
     return result.user;
   } catch (error: any) {
     console.error('Firebase Google Sign-In error:', error);
@@ -96,38 +94,40 @@ export async function signInWithGoogle() {
  * Sign in using Firebase Email and Password
  */
 export async function signInWithFirebaseEmail(email: string, pass: string) {
-  if (!auth?.app) {
-    throw new Error('Firebase Auth is not initialized.');
-  }
-  return await signInWithEmailAndPassword(auth, email, pass);
+  const authInstance = await getFirebaseAuth();
+  const { signInWithEmailAndPassword } = await import('firebase/auth');
+  return await signInWithEmailAndPassword(authInstance, email, pass);
 }
 
 /**
  * Register a new user using Firebase Email and Password
  */
 export async function registerWithFirebaseEmail(email: string, pass: string) {
-  if (!auth?.app) {
-    throw new Error('Firebase Auth is not initialized.');
-  }
-  return await createUserWithEmailAndPassword(auth, email, pass);
+  const authInstance = await getFirebaseAuth();
+  const { createUserWithEmailAndPassword } = await import('firebase/auth');
+  return await createUserWithEmailAndPassword(authInstance, email, pass);
 }
 
 /**
  * Send password reset email via Firebase
  */
 export async function sendFirebasePasswordReset(email: string) {
-  if (!auth?.app) {
-    throw new Error('Firebase Auth is not initialized.');
-  }
-  return await sendPasswordResetEmail(auth, email);
+  const authInstance = await getFirebaseAuth();
+  const { sendPasswordResetEmail } = await import('firebase/auth');
+  return await sendPasswordResetEmail(authInstance, email);
 }
 
 /**
  * Logout from Firebase
  */
 export async function logoutFirebase() {
-  if (!auth?.app) return;
-  return await signOut(auth);
+  try {
+    const authInstance = await getFirebaseAuth();
+    const { signOut } = await import('firebase/auth');
+    return await signOut(authInstance);
+  } catch {
+    // Graceful fallback if auth was never loaded
+  }
 }
 
 // --- Firestore Database Helpers ---
@@ -136,9 +136,10 @@ export async function logoutFirebase() {
  * Save / sync user profile to Firestore
  */
 export async function syncUserProfileToFirestore(userId: string, userData: Record<string, any>) {
-  if (!db?.app) return;
   try {
-    const userDocRef = doc(db, 'users', userId);
+    const dbInstance = await getFirebaseFirestore();
+    const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
+    const userDocRef = doc(dbInstance, 'users', userId);
     await setDoc(userDocRef, {
       ...userData,
       updatedAt: serverTimestamp()
@@ -152,10 +153,11 @@ export async function syncUserProfileToFirestore(userId: string, userData: Recor
  * Save lab report analysis to Firestore
  */
 export async function saveReportToFirestore(userId: string, reportData: Record<string, any>) {
-  if (!db?.app) return;
   try {
+    const dbInstance = await getFirebaseFirestore();
+    const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
     const reportId = reportData.id || `rep_${Date.now()}`;
-    const reportDocRef = doc(db, 'users', userId, 'reports', reportId);
+    const reportDocRef = doc(dbInstance, 'users', userId, 'reports', reportId);
     await setDoc(reportDocRef, {
       ...reportData,
       createdAt: serverTimestamp()
@@ -169,10 +171,11 @@ export async function saveReportToFirestore(userId: string, reportData: Record<s
  * Upload medical document file to Firebase Storage
  */
 export async function uploadMedicalDocument(userId: string, file: File | Blob, fileName: string): Promise<string | null> {
-  if (!storage?.app) return null;
   try {
+    const storageInstance = await getFirebaseStorage();
+    const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
     const sanitizedName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const storageRef = ref(storage, `medical-records/${userId}/${Date.now()}_${sanitizedName}`);
+    const storageRef = ref(storageInstance, `medical-records/${userId}/${Date.now()}_${sanitizedName}`);
     const snapshot = await uploadBytes(storageRef, file);
     const downloadUrl = await getDownloadURL(snapshot.ref);
     return downloadUrl;

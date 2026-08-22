@@ -37,8 +37,9 @@ import { SEOHead } from '../components/SEOHead.js';
 import { Review, FeedbackType } from '../types.js';
 import { useAuth } from '../context/AuthContext.js';
 
-// Production Cloudinary HTTPS video source for Vercel deployment
-const CLOUDINARY_HERO_VIDEO_URL = 'https://res.cloudinary.com/grmovdbb/video/upload/v1787130985/1000240377.mp4';
+// Production Cloudinary optimized HTTPS video sources and WebP poster
+const CLOUDINARY_HERO_VIDEO_POSTER = 'https://res.cloudinary.com/grmovdbb/video/upload/so_0,q_auto,f_webp,w_960/v1787130985/1000240377.webp';
+const CLOUDINARY_HERO_VIDEO_URL = 'https://res.cloudinary.com/grmovdbb/video/upload/q_auto:eco,vc_h264,w_1280/v1787130985/1000240377.mp4';
 
 interface HomePageProps {
   onNavigate: (page: string) => void;
@@ -205,16 +206,29 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     // Initial play trigger
     attemptPlay();
 
-    // CTA video autoplay helper
+    // CTA video lazy observer (only load/play when approaching viewport)
+    let ctaObserver: IntersectionObserver | null = null;
     const ctaVideo = ctaVideoRef.current;
-    if (ctaVideo) {
+    if (ctaVideo && 'IntersectionObserver' in window) {
       ctaVideo.muted = true;
       ctaVideo.defaultMuted = true;
       ctaVideo.playsInline = true;
-      ctaVideo.play().catch(() => {});
+      ctaObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            ctaVideo.play().catch(() => {});
+          } else {
+            ctaVideo.pause();
+          }
+        });
+      }, { rootMargin: '200px' });
+      ctaObserver.observe(ctaVideo);
     }
 
     return () => {
+      if (ctaObserver && ctaVideo) {
+        ctaObserver.unobserve(ctaVideo);
+      }
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
       video.removeEventListener('canplay', onCanPlay);
       video.removeEventListener('playing', onPlaying);
@@ -498,12 +512,12 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         {/* Background Video: Layer 0 */}
         <video
           ref={heroVideoRef}
-          src={CLOUDINARY_HERO_VIDEO_URL}
+          poster={CLOUDINARY_HERO_VIDEO_POSTER}
           autoPlay
           muted
           loop
           playsInline
-          preload="metadata"
+          preload="none"
           aria-hidden="true"
           className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none"
           style={{ objectFit: 'cover', width: '100%', height: '100%' }}
@@ -1322,12 +1336,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         {/* Background Video */}
         <video
           ref={ctaVideoRef}
-          src={CLOUDINARY_HERO_VIDEO_URL}
-          autoPlay
+          poster={CLOUDINARY_HERO_VIDEO_POSTER}
           muted
           loop
           playsInline
-          preload="auto"
+          preload="none"
           aria-hidden="true"
           className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none opacity-40"
           style={{ objectFit: 'cover' }}

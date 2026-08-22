@@ -18,6 +18,8 @@ const DoctorDashboard = lazy(() => import('./pages/DoctorDashboard.js').then(m =
 const LivePatientRecordPage = lazy(() => import('./pages/LivePatientRecordPage.js').then(m => ({ default: m.LivePatientRecordPage })));
 const AboutPage = lazy(() => import('./pages/AboutPage.js').then(m => ({ default: m.AboutPage })));
 const ContactPage = lazy(() => import('./pages/ContactPage.js').then(m => ({ default: m.ContactPage })));
+const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage.js').then(m => ({ default: m.PrivacyPolicyPage })));
+const TermsOfServicePage = lazy(() => import('./pages/TermsOfServicePage.js').then(m => ({ default: m.TermsOfServicePage })));
 const LoginPage = lazy(() => import('./pages/AuthPages.js').then(m => ({ default: m.LoginPage })));
 const SignUpPage = lazy(() => import('./pages/AuthPages.js').then(m => ({ default: m.SignUpPage })));
 const ForgotPasswordPage = lazy(() => import('./pages/AuthPages.js').then(m => ({ default: m.ForgotPasswordPage })));
@@ -96,6 +98,13 @@ function AppContent() {
         return <AboutPage onNavigate={handleNavigate} />;
       case 'contact':
         return <ContactPage />;
+      case 'privacy-policy':
+      case 'privacy':
+        return <PrivacyPolicyPage onNavigate={handleNavigate} />;
+      case 'terms-of-service':
+      case 'terms':
+      case 'terms-and-conditions':
+        return <TermsOfServicePage onNavigate={handleNavigate} />;
       case 'login':
         return <LoginPage onNavigate={handleNavigate} />;
       case 'signup':

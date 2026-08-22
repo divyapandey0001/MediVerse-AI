@@ -1,13 +1,11 @@
-import React, { useState } from 'react';
-import { Activity, ShieldAlert, FileText, Heart, Lock, ExternalLink, X } from 'lucide-react';
+import React from 'react';
+import { Activity, ShieldAlert, Lock } from 'lucide-react';
 
 interface FooterProps {
   onNavigate: (page: string) => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
-  const [modalType, setModalType] = useState<'privacy' | 'terms' | null>(null);
-
   const handleLinkClick = (target: string) => {
     if (target === 'services') {
       const el = document.getElementById('services-section');
@@ -151,7 +149,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
               <li>
                 <button
                   id="footer-link-privacy"
-                  onClick={() => setModalType('privacy')}
+                  onClick={() => handleLinkClick('privacy-policy')}
                   className="hover:text-blue-400 transition-colors text-left"
                 >
                   Privacy Policy
@@ -160,10 +158,10 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
               <li>
                 <button
                   id="footer-link-terms"
-                  onClick={() => setModalType('terms')}
+                  onClick={() => handleLinkClick('terms-of-service')}
                   className="hover:text-blue-400 transition-colors text-left"
                 >
-                  Terms
+                  Terms of Service
                 </button>
               </li>
             </ul>
@@ -187,68 +185,12 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           <div className="flex items-center gap-4 text-slate-400">
             <span>AI Powered Healthcare Platform</span>
             <span>•</span>
-            <button onClick={() => setModalType('privacy')} className="hover:underline hover:text-blue-300">Privacy</button>
+            <button onClick={() => handleLinkClick('privacy-policy')} className="hover:underline hover:text-blue-300">Privacy Policy</button>
             <span>•</span>
-            <button onClick={() => setModalType('terms')} className="hover:underline hover:text-blue-300">Terms</button>
+            <button onClick={() => handleLinkClick('terms-of-service')} className="hover:underline hover:text-blue-300">Terms of Service</button>
           </div>
         </div>
       </div>
-
-      {/* Privacy Policy & Terms Modal */}
-      {modalType && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white text-slate-900 rounded-2xl max-w-xl w-full max-h-[85vh] overflow-y-auto p-6 shadow-2xl border border-slate-200 animate-fadeIn">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
-              <h3 className="text-lg font-bold text-slate-900">
-                {modalType === 'privacy' ? 'Privacy Policy' : 'Terms of Service'}
-              </h3>
-              <button
-                onClick={() => setModalType(null)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4 text-sm text-slate-600 leading-relaxed">
-              {modalType === 'privacy' ? (
-                <>
-                  <p>
-                    <strong>1. Confidentiality of Health Documents:</strong> Medical files and lab reports uploaded to MediVerse are processed securely. We do not sell or distribute personal medical data to third parties.
-                  </p>
-                  <p>
-                    <strong>2. User Account Control:</strong> You retain complete ownership of your data. You may delete saved reports, BMI records, and appointments at any time from your profile portal.
-                  </p>
-                  <p>
-                    <strong>3. Data Transmission:</strong> Communications with our AI models occur over encrypted channels.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p>
-                    <strong>1. Educational Purpose Only:</strong> MediVerse provides automated health explanations and educational summaries. MediVerse is not a licensed medical practice and does not offer diagnostic or prescribing services.
-                  </p>
-                  <p>
-                    <strong>2. Not an Emergency Service:</strong> If you are experiencing a medical emergency, you must contact local emergency services immediately.
-                  </p>
-                  <p>
-                    <strong>3. Physician Consultation:</strong> Always discuss your medical findings with a qualified primary care physician or specialist before making health decisions.
-                  </p>
-                </>
-              )}
-            </div>
-
-            <div className="mt-6 pt-4 border-t border-slate-100 text-right">
-              <button
-                onClick={() => setModalType(null)}
-                className="px-5 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </footer>
   );
 };

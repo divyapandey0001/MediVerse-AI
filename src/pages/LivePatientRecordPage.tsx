@@ -33,6 +33,7 @@ import { PatientSummariesTab } from '../components/patient-record/PatientSummari
 import { PatientTimelineTab } from '../components/patient-record/PatientTimelineTab.js';
 import { PatientProfileTab } from '../components/patient-record/PatientProfileTab.js';
 import { SEOHead } from '../components/SEOHead.js';
+import { DisclaimerBanner } from '../components/DisclaimerBanner.js';
 
 interface LivePatientRecordPageProps {
   onNavigate: (page: string) => void;
@@ -496,6 +497,10 @@ export const LivePatientRecordPage: React.FC<LivePatientRecordPageProps> = ({ on
 
           </div>
         )}
+
+        <div className="pt-6">
+          <DisclaimerBanner />
+        </div>
 
       </div>
 
